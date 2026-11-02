@@ -434,3 +434,6 @@ button.armed, .button.armed { background: var(--neg); border-color: var(--neg); 
 .worksheet input { width: 92px; min-height: 36px; padding: 4px 6px; font-size: .92rem; text-align: right; }
 .worksheet td.ok input { border-color: var(--pos); background: color-mix(in srgb, var(--pos) 12%, var(--paper)); }
 .worksheet td.bad input { border-color: var(--neg); background: var(--supply-soft); }
+
+.entered { border: 2px solid var(--pos); }
+.entered-title { font: 600 1.15rem var(--font-display); color: var(--pos); }

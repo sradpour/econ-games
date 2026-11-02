@@ -27,6 +27,9 @@ async function load() {
     const id = currentId;
     const g = await rpc('get_state', { p_session: id });
     if (id !== currentId) return;
+    if (g.joined && g.session?.game_type === 'pd_tournament' && g.session.status === 'running') {
+      g.tprogress = await rpc('tournament_progress', { p_session: id }).catch(() => null);
+    }
     syncClock(g.server_now);
     const prev = store.game;
     const stageKey = g.session ? `${g.session.round_no}:${g.session.stage}:${g.session.status}` : '';

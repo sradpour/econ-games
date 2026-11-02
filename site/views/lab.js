@@ -20,8 +20,13 @@ export function renderLab(g, c) {
       <p class="kicker">Strategy tournament · ${g.team?.name || ''}</p>
       <h1>${g.session.title}</h1>
       <p class="lede">Describe how your team wants to play, check the translation, test it, then submit. Every team's strategy will play every other team's.</p>
-      ${saved.submitted ? html`<p class="saved">Your team's strategy is entered${saved.submitted_by ? ` (submitted by ${saved.submitted_by})` : ''}. ${dirty ? 'The draft below has changes; the entered version stays until someone resubmits.' : 'You can still change it and resubmit until your instructor runs the tournament.'}</p>`
-        : html`<p class="note">Your team has not entered a strategy yet.</p>`}
+      ${saved.submitted ? html`<div class="entered card">
+          <p class="entered-title">✓ Your team's strategy is entered${saved.submitted_by ? ` (by ${saved.submitted_by})` : ''}.</p>
+          <p><strong>What happens next:</strong> when every team is ready, your instructor runs the tournament. Every entered strategy plays every other one, and the results and all your matches appear on this page automatically. You don't need to do anything else.</p>
+          ${g.tprogress ? html`<p class="small">${g.tprogress.entered} of ${g.tprogress.teams} teams have entered so far.</p>` : ''}
+          <p class="small muted">Want to change it? Until the tournament runs you can edit the description or the program below, test the new version, and replace your entered strategy.${dirty ? ' Your draft below is different from the entered version.' : ''}</p>
+        </div>`
+        : html`<p class="note">Your team has not entered a strategy yet. Describe it, check the translation, test it, then submit.${g.tprogress ? ` ${g.tprogress.entered} of ${g.tprogress.teams} teams have entered so far.` : ''}</p>`}
     </section>
 
     <section class="card lab-step">
@@ -58,9 +63,12 @@ export function renderLab(g, c) {
     </section>
 
     <section class="card lab-step">
-      <h2>4. Submit</h2>
-      <p>${dirty ? 'This draft is different from the strategy your team entered.' : saved.submitted ? 'This is the version your team entered.' : 'Submit when you are happy with the test results.'}</p>
-      <button class="primary big" data-action="submit-strategy">${saved.submitted ? 'Resubmit' : 'Submit strategy'}</button>
+      <h2>4. ${saved.submitted ? 'Entered' : 'Submit'}</h2>
+      ${!saved.submitted ? html`<p>Submit when you are happy with the test results. You can still change it later, until your instructor runs the tournament.</p>
+          <button class="primary big" data-action="submit-strategy">Submit strategy</button>`
+        : dirty ? html`<p>This draft is different from the strategy your team entered. Test it first, then replace the entered version if you prefer it.</p>
+          <button class="primary big" data-action="submit-strategy">Replace our entered strategy with this draft</button>`
+        : html`<p class="saved">This is the version your team entered. Nothing else to do; results appear here after the tournament.</p>`}
     </section>` : ''}
     <details class="rules-drawer"><summary>Payoffs</summary>${payoffMatrix(c)}</details>`;
 }
@@ -127,7 +135,7 @@ on('submit-strategy', async () => {
     p_explanation: L.explanation ?? saved.explanation ?? '', p_submit: true,
   });
   store.ui.lab = { ...L, code: undefined, description: undefined };
-  toast('Strategy submitted.');
+  toast(saved.submitted ? 'Entered strategy replaced with your new version.' : 'Strategy entered. Results will appear here after the tournament.');
   await reloadGame();
 });
 
