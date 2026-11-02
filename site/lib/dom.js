@@ -5,7 +5,7 @@ const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;
 export const esc = (v) => (v === null || v === undefined ? '' : String(v).replace(/[&<>"']/g, (c) => ESC[c]));
 
 class Raw { constructor(s) { this.s = s; } toString() { return this.s; } }
-export const raw = (s) => new Raw(s ?? '');
+export const raw = (s) => (s instanceof Raw ? s : new Raw(s ?? ''));
 
 /** Tagged template: interpolations are escaped unless wrapped in raw() or produced by html``. Arrays are joined. */
 export function html(strings, ...vals) {

@@ -1,5 +1,5 @@
 // Small SVG line charts that follow the page's colour tokens (works in light and dark mode).
-import { esc } from './dom.js';
+import { esc, raw } from './dom.js';
 
 const nice = (max) => {
   if (max <= 0) return 1;
@@ -16,7 +16,7 @@ const fmt = (v) => (Math.abs(v) >= 1000 ? `${Math.round(v / 100) / 10}k` : Numbe
 export function lineChart({ series, refs = [], xLabel = '', yLabel = '', height = 220, xInteger = false, title = '' }) {
   const W = 560, H = height, L = 46, R = 14, T = yLabel ? 28 : 14, B = 34;
   const pts = series.flatMap((s) => s.points).filter((p) => p[1] !== null && p[1] !== undefined && Number.isFinite(p[1]));
-  if (!pts.length) return `<div class="chart-empty">No data yet</div>`;
+  if (!pts.length) return raw(`<div class="chart-empty">No data yet</div>`);
   const xs = pts.map((p) => p[0]);
   let x0 = Math.min(...xs), x1 = Math.max(...xs);
   if (x0 === x1) { x0 -= 1; x1 += 1; }
@@ -39,7 +39,7 @@ export function lineChart({ series, refs = [], xLabel = '', yLabel = '', height 
     return d;
   };
   const legend = series.filter((s) => s.name).map((s) => `<span class="lg lg-${s.color || 'ink'}${s.dashed ? ' dashed' : ''}">${esc(s.name)}</span>`).join('');
-  return `<figure class="chart">${title ? `<figcaption>${esc(title)}</figcaption>` : ''}
+  return raw(`<figure class="chart">${title ? `<figcaption>${esc(title)}</figcaption>` : ''}
   <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(title || yLabel)}">
     ${yTicks.map((v) => `<line class="grid" x1="${L}" x2="${W - R}" y1="${sy(v)}" y2="${sy(v)}"/><text class="tick" x="${L - 6}" y="${sy(v) + 4}" text-anchor="end">${fmt(v)}</text>`).join('')}
     ${y0 < 0 ? `<line class="zero" x1="${L}" x2="${W - R}" y1="${sy(0)}" y2="${sy(0)}"/>` : ''}
@@ -47,8 +47,8 @@ export function lineChart({ series, refs = [], xLabel = '', yLabel = '', height 
     ${refs.map((r) => `<line class="ref" x1="${L}" x2="${W - R}" y1="${sy(r.y)}" y2="${sy(r.y)}"/><text class="ref-label" x="${W - R - 4}" y="${sy(r.y) - 5}" text-anchor="end">${esc(r.label)}</text>`).join('')}
     ${series.map((s) => `<path class="line c-${s.color || 'ink'}${s.dashed ? ' dashed' : ''}" d="${path(s)}"/>${(s.dots || s.points.filter((p) => Number.isFinite(p[1])).length < 3) ? s.points.filter((p) => Number.isFinite(p[1])).map(([x, y]) => `<circle class="dot c-${s.color || 'ink'}" cx="${sx(x)}" cy="${sy(y)}" r="3.5"/>`).join('') : ''}`).join('')}
     ${xLabel ? `<text class="axis" x="${(L + W - R) / 2}" y="${H - 4}" text-anchor="middle">${esc(xLabel)}</text>` : ''}
-    ${yLabel ? `<text class="axis" x="${L - 6}" y="12" text-anchor="end">${esc(yLabel)}</text>` : ''}
-  </svg>${legend ? `<div class="legend">${legend}</div>` : ''}</figure>`;
+    ${yLabel ? `<text class="axis" x="4" y="12" text-anchor="start">${esc(yLabel)}</text>` : ''}
+  </svg>${legend ? `<div class="legend">${legend}</div>` : ''}</figure>`);
 }
 
 /** Plot a function y = f(x) on [x0, x1]. */
@@ -57,7 +57,7 @@ export const sample = (f, x0, x1, n = 60) => Array.from({ length: n + 1 }, (_, i
 /** Horizontal bars, e.g. a distribution of offers or contributions. */
 export function barChart({ bars, max, unit = '' }) {
   const top = max ?? Math.max(1, ...bars.map((b) => b.value));
-  return `<div class="bars">${bars.map((b) => `<div class="bar-row"><span class="bar-label">${esc(b.label)}</span>
+  return raw(`<div class="bars">${bars.map((b) => `<div class="bar-row"><span class="bar-label">${esc(b.label)}</span>
     <span class="bar-track"><span class="bar-fill${b.mine ? ' mine' : ''}" style="width:${Math.max(0, (b.value / top) * 100)}%"></span></span>
-    <span class="bar-value">${esc(b.text ?? `${b.value}${unit}`)}</span></div>`).join('')}</div>`;
+    <span class="bar-value">${esc(b.text ?? `${b.value}${unit}`)}</span></div>`).join('')}</div>`);
 }
