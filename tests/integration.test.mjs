@@ -24,6 +24,7 @@ before(async () => {
   execFileSync('psql', [...PSQL, '-c', 'drop database if exists econ_it', '-c', 'create database econ_it']);
   execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', 'tests/stubs.sql']);
   execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', 'supabase/migrations/0001_schema.sql']);
+  execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', 'supabase/migrations/0003_admin_management.sql']);
   await sql(`insert into private.app_config(key, value) values ('engine_url', 'local-queue') on conflict (key) do update set value = excluded.value`);
 });
 
@@ -273,4 +274,27 @@ test('engine functions are not callable by students', async () => {
   }
   const st = await sql(`select has_function_privilege('authenticated', 'public.get_state(uuid)', 'execute')`);
   assert.equal(st, 't');
+});
+
+test('admin can list and delete users and classes; others cannot', async () => {
+  const A = as('siavash.radpour@stockton.edu');
+  await login('zz-junk@go.stockton.edu', 'Junk Account');
+  await as('zz-junk@go.stockton.edu')('join_class', { p_code: code });
+  const found = await A('admin_list_users', { p_search: 'junk' });
+  assert.equal(found.length, 1);
+  assert.equal(found[0].classes, 1);
+  await fails(as(students[0])('admin_list_users', { p_search: '' }), /Admins only/);
+  await fails(as(students[0])('admin_delete_user', { p_user: found[0].id }), /Admins only/);
+  await fails(A('admin_delete_user', { p_user: users['siavash.radpour@stockton.edu'] }), /own account/);
+  await A('admin_delete_user', { p_user: found[0].id });
+  assert.equal((await A('admin_list_users', { p_search: 'junk' })).length, 0);
+  assert.equal(await sql(`select count(*) from auth.users where email = 'zz-junk@go.stockton.edu'`), '0');
+  // classes
+  await login('colleague@stockton.edu', 'A Colleague');
+  const cc = await as('colleague@stockton.edu')('create_class', { p_name: 'Colleague Class', p_domains: [] });
+  const all = await A('admin_list_classes');
+  assert.ok(all.some((c) => c.name === 'Colleague Class' && c.instructor === 'A Colleague'));
+  await fails(as('colleague@stockton.edu')('admin_delete_class', { p_class: cc.id }), /Admins only/);
+  await A('admin_delete_class', { p_class: cc.id });
+  assert.ok(!(await A('admin_list_classes')).some((c) => c.id === cc.id));
 });
