@@ -446,3 +446,9 @@ a.type-card { color: var(--ink); text-decoration: none; background: var(--surfac
 .inline-label { display: flex; align-items: center; gap: 8px; }
 .inline-label select { width: auto; min-height: 40px; }
 .demo-link { margin-top: 18px; }
+
+.typical { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 10px 0 4px; }
+.typical > div { display: grid; padding: 8px 12px; border-radius: var(--r-sm); background: var(--demand-soft); }
+.typical span { font-size: .82rem; color: var(--ink-2); }
+.typical strong { font: 800 1.35rem var(--font-display); color: var(--demand); }
+.typical p { grid-column: 1 / -1; margin: 0; }

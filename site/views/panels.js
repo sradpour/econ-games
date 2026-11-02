@@ -1,6 +1,6 @@
 // Per-game decision forms, results and charts for the student screen.
 import { html, raw, store, setUi, on, money, num, pct, rerender } from '../lib/dom.js';
-import { variableCost, marginalCost, laborHours, marginalProduct, normalizeConfig } from '../lib/engine.js';
+import { variableCost, marginalCost, laborHours, marginalProduct, normalizeConfig, benchmarks } from '../lib/engine.js';
 import { lineChart, sample, barChart } from '../lib/chart.js';
 import { serverNow } from '../app.js';
 import { submit } from './play.js';
@@ -61,23 +61,52 @@ export function decisionPanel(g, c) {
 // ---------------------------------------------------------------------------
 // Markets
 
-function startValues(g) {
+// "Typical price" shown in perfect and monopolistic competition: the equilibrium price for this market.
+const typicalCache = new Map();
+function typicalPrice(g, c) {
+  const t = g.session.game_type;
+  if (t !== 'competitive' && t !== 'monopolistic') return null;
+  const n = Math.max(1, g.session.team_mode === 'teams' ? (g.teams?.length || g.session.player_count) : g.session.player_count);
+  const key = `${t}|${n}|${JSON.stringify(c)}`;
+  if (!typicalCache.has(key)) {
+    const b = benchmarks(t, c, n);
+    typicalCache.set(key, b ? Math.round((t === 'competitive' ? b.price : b.nash_price) * 100) / 100 : null);
+  }
+  return typicalCache.get(key);
+}
+
+function startValues(g, c) {
   const d = g.me.decision;
   if (d) return { participate: d.participate !== false, price: d.price, quantity: d.quantity, branding: d.branding ?? 0 };
   const r = lastRes(g);
   if (r && r.participated) return { participate: true, price: r.price, quantity: r.produced, branding: r.branding ?? 0 };
-  return { participate: true, price: '', quantity: '', branding: 0 };
+  const typical = c ? typicalPrice(g, c) : null;
+  return { participate: true, price: typical ?? '', quantity: '', branding: 0 };
 }
+
+function typicalPriceBox(g, c) {
+  const typical = typicalPrice(g, c);
+  if (typical === null) return '';
+  const last = lastPub(g)?.market_price;
+  const unit = c.product || 'unit';
+  return html`<div class="typical"><div><span>Typical price for ${a_an(unit)} ${unit}</span><strong>${money(typical, 2)}</strong></div>
+    ${last !== undefined && last !== null ? html`<div><span>Market price last round</span><strong>${money(last, 2)}</strong></div>` : ''}
+    <p class="small muted">${g.session.game_type === 'competitive'
+      ? `Many ${c.business === 'bakery' ? 'bakeries' : c.business + 's'} sell the same ${unit}, so buyers won't pay much more than this. Your real choice is how many to make.`
+      : `What similar ${c.product_plural || 'products'} usually sell for. Branding can let you charge more.`}</p></div>`;
+}
+const a_an = (w) => (/^[aeiou]/i.test(String(w)) ? 'an' : 'a');
 
 function marketForm(g, c) {
   const t = g.session.game_type;
-  const v = startValues(g);
+  const v = startValues(g, c);
   const p = { ...v, ...(store.ui.preview || {}) };
   const enabled = canSubmit(g);
   const hasQty = t !== 'oligopoly';
   const hard = c.difficulty === 'hard';
   return html`
     ${captainNote(g)}
+    ${typicalPriceBox(g, c)}
     <form class="market-form" data-action="submit-market">
       <fieldset ${enabled ? '' : 'disabled'}>
         <label class="switch"><input type="checkbox" name="participate" ${v.participate ? 'checked' : ''} data-input="preview"> <span>Open for business this round</span></label>
