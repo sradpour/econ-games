@@ -244,9 +244,11 @@ test('strategy tournament: save, rate limit hook, results saved by instructor', 
   await T('instructor_control', { p_session: s.id, p_action: 'start' });
   await drain();
   await as(students[0])('consume_translation', { p_session: s.id });
-  await as(students[0])('save_strategy', { p_session: s.id, p_description: 'tit for tat', p_code: 'function strategy(){return "C"}', p_explanation: '1. C', p_submit: true });
+  await fails(as(students[0])('save_strategy', { p_session: s.id, p_description: 'tit for tat', p_code: 'function strategy(){return "C"}', p_explanation: '1. C', p_submit: true }), /name/);
+  await as(students[0])('save_strategy', { p_session: s.id, p_description: 'tit for tat', p_code: 'function strategy(){return "C"}', p_explanation: '1. C', p_submit: true, p_name: 'Forgiving Fox' });
   const g = await as(students[1])('get_state', { p_session: s.id });
   assert.equal(g.strategy.submitted, true);
+  assert.equal(g.strategy.submitted_name, 'Forgiving Fox');
   assert.equal(g.strategy.translations_used, 1);
   const st = await T('instructor_state', { p_session: s.id });
   const ranking = st.teams.map((t, i) => ({ team_id: t.id, name: t.name, total: 100 - i, rank: i + 1 }));

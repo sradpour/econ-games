@@ -14,14 +14,15 @@ export function renderLab(g, c) {
   const code = L.code ?? saved.code ?? '';
   const explanation = L.explanation ?? saved.explanation ?? '';
   const description = L.description ?? saved.description ?? '';
-  const dirty = saved.submitted && code !== saved.submitted_code;
+  const sname = L.name ?? saved.name ?? '';
+  const dirty = saved.submitted && (code !== saved.submitted_code || sname.trim() !== (saved.submitted_name || ''));
   return html`
     <section class="lab-head">
       <p class="kicker">Strategy tournament · ${g.team?.name || ''}</p>
       <h1>${g.session.title}</h1>
       <p class="lede">Describe how your team wants to play, check the translation, test it, then submit. Every team's strategy will play every other team's.</p>
       ${saved.submitted ? html`<div class="entered card">
-          <p class="entered-title">✓ Your team's strategy is entered${saved.submitted_by ? ` (by ${saved.submitted_by})` : ''}.</p>
+          <p class="entered-title">✓ “${saved.submitted_name || 'Your strategy'}” is entered${saved.submitted_by ? ` (by ${saved.submitted_by})` : ''}.</p>
           <p><strong>What happens next:</strong> when every team is ready, your instructor runs the tournament. Every entered strategy plays every other one, and the results and all your matches appear on this page automatically. You don't need to do anything else.</p>
           ${g.tprogress ? html`<p class="small">${g.tprogress.entered} of ${g.tprogress.teams} teams have entered so far.</p>` : ''}
           <p class="small muted">Want to change it? Until the tournament runs you can edit the description or the program below, test the new version, and replace your entered strategy.${dirty ? ' Your draft below is different from the entered version.' : ''}</p>
@@ -30,8 +31,10 @@ export function renderLab(g, c) {
     </section>
 
     <section class="card lab-step">
-      <h2>1. Describe your strategy</h2>
+      <h2>1. Name and describe your strategy</h2>
       <form data-action="translate" class="stack">
+        <label>Strategy name <input name="sname" maxlength="40" value="${sname}" data-input="lab-name" placeholder="e.g. Forgiving Fox" required>
+          <span class="help">Shown on the tournament scoreboard.</span></label>
         <textarea name="description" rows="5" maxlength="3000" data-input="lab-desc" placeholder="Example: Cooperate in the first round. After that, do whatever my opponent did last round, but forgive a single defection one time in three.">${description}</textarea>
         <button class="primary" type="submit" ${L.translating ? 'disabled' : ''}>${L.translating ? `Translating… ${Math.round((Date.now() - L.translateStarted) / 1000)} s` : code ? 'Translate again' : 'Translate'}</button>
         ${L.translating ? html`<p class="small muted">Sent to Google's Gemini; waiting for its answer. This usually takes 5–20 seconds. If nothing comes back within 90 seconds you'll see an error here.</p>` : ''}
@@ -86,8 +89,10 @@ function testTable(results) {
 
 const sid = () => store.game.session.id;
 const currentCode = () => lab().code ?? store.game.strategy?.code ?? '';
+const currentName = () => (lab().name ?? store.game.strategy?.name ?? '').trim();
 
 on('lab-desc', (el) => { store.ui.lab = { ...lab(), description: el.value }; });
+on('lab-name', (el) => { store.ui.lab = { ...lab(), name: el.value }; });
 on('lab-code', (el) => { store.ui.lab = { ...lab(), code: el.value, tests: null }; });
 
 let tick = null;
@@ -98,7 +103,7 @@ async function doTranslate(body) {
   try {
     const r = await translateStrategy({ session_id: sid(), ...body });
     setUi('lab', { code: r.code, explanation: r.explanation, assumptions: r.assumptions, tests: null, translating: false, description: body.description });
-    await rpc('save_strategy', { p_session: sid(), p_description: body.description, p_code: r.code, p_explanation: r.explanation, p_submit: false });
+    await rpc('save_strategy', { p_session: sid(), p_description: body.description, p_code: r.code, p_explanation: r.explanation, p_submit: false, p_name: currentName() });
     await reloadGame();
     toast('Translated. Check the explanation, then test it.');
   } catch (e) {
@@ -127,14 +132,15 @@ on('run-tests', async () => {
 on('submit-strategy', async () => {
   const code = currentCode();
   if (!code.includes('function strategy')) throw new Error('Translate your strategy first.');
+  if (!currentName()) { document.querySelector('input[name=sname]')?.focus(); throw new Error('Give your strategy a name first (step 1).'); }
   try { await testStrategy(code, store.game.session.config, [HOUSE[0].id]); }
   catch (e) { throw new Error(`Fix this before submitting: ${e.message}`); }
   const L = lab(); const saved = store.game.strategy || {};
   await rpc('save_strategy', {
     p_session: sid(), p_description: L.description ?? saved.description ?? '', p_code: code,
-    p_explanation: L.explanation ?? saved.explanation ?? '', p_submit: true,
+    p_explanation: L.explanation ?? saved.explanation ?? '', p_submit: true, p_name: currentName(),
   });
-  store.ui.lab = { ...L, code: undefined, description: undefined };
+  store.ui.lab = { ...L, code: undefined, description: undefined, name: undefined };
   toast(saved.submitted ? 'Entered strategy replaced with your new version.' : 'Strategy entered. Results will appear here after the tournament.');
   await reloadGame();
 });
@@ -150,10 +156,10 @@ export function tournamentResults(g, opts = {}) {
   const myMatches = mine ? t.matches.filter((m) => m.a === mine.entrant_id || m.b === mine.entrant_id) : [];
   return html`
     ${mine ? html`<div class="final-score"><div class="place"><span class="place-n">${mine.rank}</span><span class="place-of">of ${t.ranking.length}</span></div>
-      <div><p class="muted">Your strategy scored</p><p class="score">${num(mine.total)}</p><p class="small muted">${num(mine.average, 2)} points per round · ${mine.wins} wins, ${mine.ties} ties, ${mine.losses} losses</p></div></div>` : ''}
+      <div><p class="muted">${mine.name && mine.name !== mine.team ? `“${mine.name}” scored` : 'Your strategy scored'}</p><p class="score">${num(mine.total)}</p><p class="small muted">${num(mine.average, 2)} points per round · ${mine.wins} wins, ${mine.ties} ties, ${mine.losses} losses</p></div></div>` : ''}
     <section class="card"><h2>Ranking</h2>
       <table class="board"><thead><tr><th>#</th><th>Strategy</th><th>Total</th><th>Per round</th><th>W–T–L</th></tr></thead><tbody>
-      ${t.ranking.map((r) => html`<tr class="${r.team_id && r.team_id === myId ? 'me' : ''}"><td>${r.rank}</td><td>${r.name}${r.house ? html` <span class="chip">house</span>` : ''}${r.disqualified ? html`<div class="small neg">Broken program, played as Always Cooperate</div>` : ''}</td>
+      ${t.ranking.map((r) => html`<tr class="${r.team_id && r.team_id === myId ? 'me' : ''}"><td>${r.rank}</td><td><strong>${r.name}</strong>${r.team && r.team !== r.name ? html`<div class="small muted">${r.team}</div>` : ''}${r.house ? html` <span class="chip">house</span>` : ''}${r.disqualified ? html`<div class="small neg">Broken program, played as Always Cooperate</div>` : ''}</td>
         <td>${num(r.total)}</td><td>${num(r.average, 2)}</td><td>${r.wins}–${r.ties}–${r.losses}</td></tr>`)}
       </tbody></table>
       <p class="small muted">Each pair played ${t.repeats} ${t.repeats === 1 ? 'match' : 'matches'}; match lengths were ${t.lengths.join(', ')} rounds.</p>

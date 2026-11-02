@@ -273,9 +273,9 @@ function tournamentPanel(st, c) {
         <button class="primary big" data-action="run-tournament" ${ui.running || !submitted.length ? 'disabled' : ''}>${ui.running ? `Running… ${Math.round((ui.progress || 0) * 100)}%` : 'Run tournament'}</button></div>
       <p class="small muted">The tournament runs in this browser in a sandbox (about a second), then results are saved and shown to students. Only submitted strategies play.</p>
       ${ui.error ? html`<p class="error">${ui.error}</p>` : ''}
-      <ul class="strat-list">${st.teams.map((t) => { const x = strat[t.id]; return html`<li data-key="${t.id}"><details><summary><strong>${t.name}</strong>
+      <ul class="strat-list">${st.teams.map((t) => { const x = strat[t.id]; return html`<li data-key="${t.id}"><details><summary><strong>${t.name}</strong>${x?.name ? html` <span class="small">“${x.name}”</span>` : ''}
         <span class="chip ${x?.submitted ? 'st-running' : 'st-lobby'}">${x?.submitted ? (x.has_newer_draft ? 'submitted, editing a new draft' : 'submitted') : x?.code ? 'draft only' : 'nothing yet'}</span> <span class="small muted">${t.members.join(', ')}</span></summary>
-        ${x ? html`<p><em>${x.description || '–'}</em></p>${x.explanation ? html`<div class="explain">${x.explanation.split('\n').filter(Boolean).map((l) => html`<p>${l}</p>`)}</div>` : ''}
+        ${x ? html`${x.name ? html`<p><strong>“${x.name}”</strong></p>` : ''}<p><em>${x.description || '–'}</em></p>${x.explanation ? html`<div class="explain">${x.explanation.split('\n').filter(Boolean).map((l) => html`<p>${l}</p>`)}</div>` : ''}
         <pre class="mono">${x.code}</pre>` : ''}</details></li>`; })}</ul>
       <div class="row"><button class="danger" data-action="ctl" data-op="finish">Close without a tournament</button></div>
     </section>` : html`<section class="card"><div class="row spread"><h2>Tournament results</h2>
@@ -288,7 +288,7 @@ on('run-tournament', async () => {
   const st = store.ctrl;
   const c = normalizeConfig(st.session.game_type, st.session.config);
   const entrants = st.strategies.filter((x) => x.submitted && st.teams.some((t) => t.id === x.team_id))
-    .map((x) => ({ id: x.team_id, team_id: x.team_id, name: st.teams.find((t) => t.id === x.team_id).name, code: x.code }));
+    .map((x) => { const team = st.teams.find((t) => t.id === x.team_id).name; return { id: x.team_id, team_id: x.team_id, name: x.name || team, team, code: x.code }; });
   if (c.include_house) for (const h of HOUSE.filter((h) => h.id !== 'house:random')) entrants.push({ id: h.id, name: h.name, code: h.code });
   if (entrants.length < 2) throw new Error('At least two strategies are needed.');
   setUi('tourn', { running: true, progress: 0, error: null });

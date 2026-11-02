@@ -102,7 +102,7 @@ export async function runTournament(entrants, cfg, onProgress) {
     A.errors += m.errorsA.length; B.errors += m.errorsB.length;
   }
   const ranking = screened.map((e) => ({
-    team_id: e.team_id ?? null, entrant_id: e.id, name: e.name, house: !e.team_id,
+    team_id: e.team_id ?? null, entrant_id: e.id, name: e.name, team: e.team ?? null, house: !e.team_id,
     disqualified: e.disqualified, ...score[e.id],
     average: score[e.id].rounds ? Math.round((score[e.id].total / score[e.id].rounds) * 1000) / 1000 : 0,
   })).sort((a, b) => b.total - a.total);

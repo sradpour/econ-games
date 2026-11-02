@@ -164,11 +164,13 @@ create table if not exists public.session_outputs (
 create table if not exists public.strategies (
   session_id uuid not null references public.sessions(id) on delete cascade,
   team_id uuid not null references public.teams(id) on delete cascade,
+  name text not null default '',
   description text not null default '',
   code text not null default '',
   explanation text not null default '',
   submitted boolean not null default false,
   submitted_at timestamptz,
+  submitted_name text,
   submitted_description text,
   submitted_code text,
   submitted_explanation text,
@@ -776,7 +778,8 @@ begin
 
   if s.game_type = 'pd_tournament' and sp.team_id is not null then
     res := res || jsonb_build_object('strategy', (
-      select jsonb_build_object('description', x.description, 'code', x.code, 'explanation', x.explanation,
+      select jsonb_build_object('name', x.name, 'submitted_name', x.submitted_name,
+                                'description', x.description, 'code', x.code, 'explanation', x.explanation,
                                 'submitted', x.submitted, 'submitted_code', x.submitted_code, 'submitted_at', x.submitted_at,
                                 'submitted_by', (select coalesce(full_name, email) from public.profiles where id = x.submitted_by),
                                 'translations_used', x.translations_used, 'updated_at', x.updated_at,
@@ -789,11 +792,12 @@ end $$;
 -- ---------------------------------------------------------------------------
 -- Strategy tournament (students)
 
-create or replace function public.save_strategy(p_session uuid, p_description text, p_code text, p_explanation text, p_submit boolean)
+create or replace function public.save_strategy(p_session uuid, p_description text, p_code text, p_explanation text, p_submit boolean, p_name text default null)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
   s public.sessions;
   sp public.session_players;
+  v_name text;
 begin
   perform private.me();
   select * into s from public.sessions where id = p_session;
@@ -804,15 +808,20 @@ begin
   if length(coalesce(p_code, '')) > 20000 or length(coalesce(p_description, '')) > 5000 then
     raise exception 'Strategy is too long.';
   end if;
+  v_name := left(trim(coalesce(p_name, '')), 40);
   -- The draft is always updated; the submitted copy only changes when the team submits.
-  insert into public.strategies(session_id, team_id, description, code, explanation, updated_by, updated_at)
-  values (p_session, sp.team_id, coalesce(p_description, ''), coalesce(p_code, ''), coalesce(p_explanation, ''), auth.uid(), now())
+  insert into public.strategies(session_id, team_id, name, description, code, explanation, updated_by, updated_at)
+  values (p_session, sp.team_id, v_name, coalesce(p_description, ''), coalesce(p_code, ''), coalesce(p_explanation, ''), auth.uid(), now())
   on conflict (session_id, team_id) do update set
+    name = case when p_name is null then public.strategies.name else excluded.name end,
     description = excluded.description, code = excluded.code, explanation = excluded.explanation,
     updated_by = excluded.updated_by, updated_at = now();
   if p_submit then
+    if (select coalesce(trim(name), '') from public.strategies where session_id = p_session and team_id = sp.team_id) = '' then
+      raise exception 'Give your strategy a name before submitting.';
+    end if;
     update public.strategies set submitted = true, submitted_at = now(), submitted_by = auth.uid(),
-      submitted_description = description, submitted_code = code, submitted_explanation = explanation
+      submitted_name = name, submitted_description = description, submitted_code = code, submitted_explanation = explanation
     where session_id = p_session and team_id = sp.team_id;
   end if;
   perform private.bump(p_session);
@@ -992,9 +1001,10 @@ begin
       from public.round_public p where p.session_id = s.id), '[]'),
     'outputs', coalesce((select jsonb_object_agg(o.kind, o.payload) from public.session_outputs o where o.session_id = s.id), '{}'),
     'strategies', coalesce((select jsonb_agg(jsonb_build_object('team_id', x.team_id,
+        'name', coalesce(nullif(x.submitted_name, ''), x.name),
         'description', coalesce(x.submitted_description, x.description), 'code', coalesce(x.submitted_code, x.code),
         'explanation', coalesce(x.submitted_explanation, x.explanation), 'submitted', x.submitted,
-        'has_newer_draft', x.submitted and x.code is distinct from x.submitted_code, 'updated_at', x.updated_at))
+        'has_newer_draft', x.submitted and (x.code is distinct from x.submitted_code or x.name is distinct from x.submitted_name), 'updated_at', x.updated_at))
       from public.strategies x where x.session_id = s.id), '[]')
   );
 end $$;
