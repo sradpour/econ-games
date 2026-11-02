@@ -437,3 +437,12 @@ button.armed, .button.armed { background: var(--neg); border-color: var(--neg); 
 
 .entered { border: 2px solid var(--pos); }
 .entered-title { font: 600 1.15rem var(--font-display); color: var(--pos); }
+
+.demo-banner { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 14px;
+  border: 1.5px dashed var(--demand); border-radius: var(--r-sm); background: var(--demand-soft); font-size: .95rem; }
+.play-demo { color: var(--demand); font-weight: 700; margin-top: auto; }
+a.type-card { color: var(--ink); text-decoration: none; background: var(--surface); border: 1.5px solid var(--line); }
+.demo-options .type-grid { margin-top: 14px; }
+.inline-label { display: flex; align-items: center; gap: 8px; }
+.inline-label select { width: auto; min-height: 40px; }
+.demo-link { margin-top: 18px; }

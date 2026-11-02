@@ -76,7 +76,7 @@ export function renderLab(g, c) {
     <details class="rules-drawer"><summary>Payoffs</summary>${payoffMatrix(c)}</details>`;
 }
 
-function testTable(results) {
+export function testTable(results) {
   const name = (id) => (id === 'me2' ? 'Your own strategy' : HOUSE.find((h) => h.id === id)?.name || id);
   const errs = results.flatMap((r) => r.errorsA);
   return html`

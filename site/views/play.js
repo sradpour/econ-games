@@ -5,6 +5,7 @@ import { syncClock } from '../app.js';
 import { statusChip } from './student.js';
 import { decisionPanel, lastResult, historyBlock, publicBlock, finalBlock, stageLabel, roundsTotal } from './panels.js';
 import { renderLab } from './lab.js';
+import { demoSubmit, demoPass } from '../lib/demo.js';
 
 let stopWatch = null;
 let currentId = null;
@@ -54,7 +55,9 @@ export function renderPlay() {
   const s = g.session;
   const cfg = normalizeConfig(s.game_type, s.config);
   return html`<main class="page play gt-${s.game_type}">
-    <a class="back" href="#/">← ${s.class_name}</a>
+    ${g.demo ? html`<a class="back" href="#/demo">← All demos</a>
+      <div class="demo-banner"><span>Demo: you're playing against computer players. There's no timer and nothing is saved.</span>
+        <button class="link" data-action="demo-restart">Start over</button></div>` : html`<a class="back" href="#/">← ${s.class_name}</a>`}
     ${!g.joined ? intro(g, cfg)
       : s.status === 'finished' ? finished(g, cfg)
       : !g.me.passed_check ? quiz(g, cfg)
@@ -109,6 +112,7 @@ function quiz(g, cfg) {
         </fieldset>`;
       })}
       <button class="primary" type="submit">Check answers</button>
+      ${g.demo ? html`<button type="button" class="link" data-action="demo-skip-check">Skip the check (demo only)</button>` : ''}
     </form>
   </section>`;
 }
@@ -122,6 +126,7 @@ on('check-quiz', async () => {
   const qz = store.ui.quiz;
   qz.items.forEach((item, i) => { qz.marks[i] = qz.answers[i] === item.answer ? 'right' : 'wrong'; });
   const ok = qz.items.every((item, i) => qz.answers[i] === item.answer);
+  if (ok && store.game?.demo) { demoPass(); toast('All correct. You are in.'); return; }
   if (ok) { await rpc('pass_check', { p_session: currentId }); toast('All correct. You are in.'); await load(); }
   else rerender();
 });
@@ -248,7 +253,10 @@ function finished(g, cfg) {
 // ---------------------------------------------------------------------------
 // Submitting decisions
 
+on('demo-skip-check', () => demoPass());
+
 export async function submit(payload) {
+  if (store.game?.demo) { demoSubmit(payload); return; }
   await rpc('submit_decision', { p_session: currentId, p_payload: payload });
   toast('Decision saved. You can change it until time runs out.');
   await load();

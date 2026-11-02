@@ -6,6 +6,7 @@ import { renderPlay, enterPlay, leavePlay } from './views/play.js';
 import { renderTeach, renderClass, renderNewGame, enterTeach } from './views/teach.js';
 import { renderControl, enterControl, leaveControl } from './views/control.js';
 import { renderAdmin, enterAdmin } from './views/admin.js';
+import { renderDemo, enterDemo } from './views/demo.js';
 
 const root = document.getElementById('app');
 installEvents(document.body);
@@ -21,6 +22,7 @@ function parseRoute() {
   if (parts[0] === 'teach' && parts[1] === 'game' && parts[2]) return { name: 'control', id: parts[2], projector: parts[3] === 'projector' };
   if (parts[0] === 'teach') return { name: 'teach' };
   if (parts[0] === 'admin') return { name: 'admin' };
+  if (parts[0] === 'demo') return { name: 'demo', id: parts[1] };
   return { name: 'home' };
 }
 
@@ -30,6 +32,8 @@ async function onRoute() {
   leaving?.(); leaving = null;
   setState({ route });
   window.scrollTo(0, 0);
+  if (route.name === 'demo') { if (!route.id && store.game?.demo) store.game = null; enterDemo(route.id); return; }
+  if (store.game?.demo) store.game = null;
   if (!store.me?.full_name || (!store.me.profile_completed && !store.me.is_instructor)) return;
   if (route.name === 'play') { enterPlay(route.id); leaving = leavePlay; }
   if (['teach', 'class', 'new'].includes(route.name)) enterTeach();
@@ -56,9 +60,11 @@ function header() {
   const teaching = ['teach', 'class', 'new', 'control', 'admin'].includes(r.name);
   return html`<header class="topbar">
     <a class="brand" href="#/"><span class="brand-mark" aria-hidden="true">${raw(markSvg)}</span><span>Econ Games</span></a>
+    ${!me ? html`<nav class="topnav"><a href="#/demo" class="${r.name === 'demo' ? 'on' : ''}">Try a demo</a></nav>` : ''}
     ${me ? html`<nav class="topnav">
       ${me.is_instructor ? html`<a href="#/" class="${!teaching ? 'on' : ''}">Play</a><a href="#/teach" class="${teaching && r.name !== 'admin' ? 'on' : ''}">Teach</a>` : ''}
       ${me.is_admin ? html`<a href="#/admin" class="${r.name === 'admin' ? 'on' : ''}">Admin</a>` : ''}
+      <a href="#/demo" class="${r.name === 'demo' ? 'on' : ''}">Demo</a>
       <details class="account"><summary aria-label="Account">${(me.full_name || me.email || '?').slice(0, 1).toUpperCase()}</summary>
         <div class="menu"><p class="who"><strong>${me.full_name || ''}</strong><br><span>${me.email}</span>${me.student_id ? html`<br><span>ID ${me.student_id}</span>` : ''}</p>
           <button class="link" data-action="edit-profile">Edit name or student ID</button>
@@ -71,6 +77,7 @@ const markSvg = '<svg viewBox="0 0 32 32" width="28" height="28"><path d="M4 6 L
 
 function body() {
   if (store.booting) return html`<main class="page narrow"><p class="muted center">Loading…</p></main>`;
+  if (store.route?.name === 'demo') return renderDemo(store.route);
   if (!store.user) return renderSignIn();
   if (!store.me) return html`<main class="page narrow"><p class="muted center">Loading your account…</p></main>`;
   if (!store.me.full_name || store.ui.editProfile || (!store.me.profile_completed && !store.me.is_instructor)) return renderProfileSetup();
@@ -130,7 +137,7 @@ on('edit-profile', () => { document.querySelector('.account')?.removeAttribute('
 setState({ booting: true });
 initAuth(async (user) => {
   setState({ user, booting: false, me: null });
-  if (!user) return;
+  if (!user) { onRoute(); return; }
   try {
     let me = await refreshMe();
     if (!me) { await new Promise((r) => setTimeout(r, 800)); me = await refreshMe(); } // profile trigger may lag a moment

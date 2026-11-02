@@ -27,6 +27,7 @@ export function renderSignIn() {
         </form>`
       : html`<button class="primary big google" data-action="google-sign-in">${raw(googleSvg)} Sign in with Google</button>
         <p class="fine">Students: use your school Google account. Your instructor sees your name, email and student ID so games can count toward your grade.</p>`}
+      <p class="demo-link"><a href="#/demo">Try any game first in demo mode</a>, no sign-in needed.</p>
     </section>
   </main>`;
 }

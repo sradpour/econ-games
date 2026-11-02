@@ -14,6 +14,8 @@ Free, self-hosted classroom economics games for introductory microeconomics, reb
 - Public goods: anonymous groups, partners or strangers matching, optional punishment phase.
 - Ultimatum and dictator games.
 
+Every game also has a **demo mode** (`#/demo`, no sign-in needed): play alone against simulated players, with no timer and nothing saved.
+
 Every game has a comprehension check, a round timer controlled from the instructor screen, a projector view, leaderboards (configurable), and CSV exports with student names, emails and IDs for grading.
 
 ## How it is hosted (all free tiers)
