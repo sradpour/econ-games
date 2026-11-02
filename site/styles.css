@@ -422,3 +422,6 @@ pre.mono { background: var(--paper); border: 1px solid var(--line); border-radiu
   .hero-graph .d, .hero-graph .s { stroke-dashoffset: 0; }
   .hero-graph .eq { opacity: 1; }
 }
+
+button.armed, .button.armed { background: var(--neg); border-color: var(--neg); color: #fff; }
+.toast.warn { background: var(--hi); color: var(--hi-ink); }

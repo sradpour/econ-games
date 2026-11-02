@@ -120,6 +120,32 @@ export function toast(message, kind = 'info') {
   toastTimer = setTimeout(() => { el.className = 'toast'; }, kind === 'error' ? 6000 : 3000);
 }
 
+// Two-click confirmation that works everywhere (some embedded browsers block confirm() pop-ups).
+// First click shows the warning and arms the button for 6 seconds; a second click within that time confirms.
+const armedAt = new Map();
+export function confirmed(el, message) {
+  const key = `${el.dataset.action}|${JSON.stringify({ ...el.dataset, armed: undefined, label: undefined })}`;
+  const t = armedAt.get(key);
+  if (t && Date.now() - t < 6000) {
+    armedAt.delete(key);
+    if (el.dataset.label) { el.textContent = el.dataset.label; delete el.dataset.label; }
+    el.classList.remove('armed');
+    return true;
+  }
+  armedAt.set(key, Date.now());
+  toast(`${message} Click the button again to confirm.`, 'warn');
+  if (!el.dataset.label) el.dataset.label = el.textContent;
+  el.textContent = 'Click again to confirm';
+  el.classList.add('armed');
+  setTimeout(() => {
+    if (armedAt.get(key) && Date.now() - armedAt.get(key) >= 5900) {
+      armedAt.delete(key);
+      if (el.isConnected && el.dataset.label) { el.textContent = el.dataset.label; delete el.dataset.label; el.classList.remove('armed'); }
+    }
+  }, 6000);
+  return false;
+}
+
 async function run(name, el, extra) {
   const fn = handlers[name];
   if (!fn) { console.warn('No handler for', name); return; }

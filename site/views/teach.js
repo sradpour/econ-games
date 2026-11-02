@@ -1,4 +1,4 @@
-import { html, store, setState, setUi, on, toast, rerender, plural } from '../lib/dom.js';
+import { html, store, setState, setUi, on, toast, rerender, plural, confirmed } from '../lib/dom.js';
 import { rpc } from '../lib/api.js';
 import { GAME_LABELS, GAME_INFO, SETTINGS, defaultsFor, MARKETS } from '../lib/games.js';
 import { go } from '../app.js';
@@ -105,13 +105,13 @@ on('update-class', async (form, d) => {
   toast('Saved'); await enterTeach();
 });
 on('new-code', async (el) => {
-  if (!confirm('Make a new class code? The old one stops working; students already in the class stay in.')) return;
+  if (!confirmed(el, 'Make a new class code? The old one stops working; students already in the class stay in.')) return;
   const c = store.teach.classes.find((x) => x.id === el.dataset.id);
   await rpc('update_class', { p_class: c.id, p_name: c.name, p_domains: c.allowed_domains, p_archived: c.archived, p_new_code: true });
   await enterTeach();
 });
 on('remove-member', async (el) => {
-  if (!confirm(`Remove ${el.dataset.name} from this class?`)) return;
+  if (!confirmed(el, `Remove ${el.dataset.name} from this class?`)) return;
   await rpc('remove_class_member', { p_class: el.dataset.class, p_user: el.dataset.user });
   await loadRoster(el.dataset.class);
 });

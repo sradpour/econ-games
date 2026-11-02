@@ -1,5 +1,5 @@
 // Instructor control room for one game (+ projector view).
-import { html, raw, store, setState, setUi, on, toast, money, num, pct, plural } from '../lib/dom.js';
+import { html, raw, store, setState, setUi, on, toast, money, num, pct, plural, confirmed } from '../lib/dom.js';
 import { rpc, watchSession } from '../lib/api.js';
 import { GAME_LABELS, normalizeConfig, MARKETS, SETTINGS } from '../lib/games.js';
 import { lineChart, barChart } from '../lib/chart.js';
@@ -91,15 +91,15 @@ function controls(st, c) {
 
 on('ctl', async (el) => {
   const op = el.dataset.op;
-  if (op === 'finish' && !confirm('End the game now? Scores so far become final.')) return;
+  if (op === 'finish' && !confirmed(el, 'End the game now? Scores so far become final.')) return;
   if (op === 'start' && store.ctrl.players.some((p) => !p.passed_check)
-      && !confirm('Some players have not passed the quick check yet. They can still finish it after the game starts, but cannot submit until they do. Start anyway?')) return;
+      && !confirmed(el, 'Some players have not passed the quick check yet; they cannot submit until they do.')) return;
   await rpc('instructor_control', { p_session: current, p_action: op, p_seconds: el.dataset.seconds ? Number(el.dataset.seconds) : null });
   if (op === 'start') toast('Starting…');
   setTimeout(load, 600); setTimeout(load, 2000);
 });
-on('delete-game', async () => {
-  if (!confirm('Delete this game and all its results? This cannot be undone.')) return;
+on('delete-game', async (el) => {
+  if (!confirmed(el, 'This deletes the game and all its results permanently.')) return;
   await rpc('delete_session', { p_session: current });
   go('#/teach');
 });
@@ -132,9 +132,9 @@ function playerLi(p, st) {
 }
 const teamAct = (action, extra) => rpc('instructor_team_action', { p_session: current, p_action: action, p_team: extra.team ?? null, p_user: extra.user ?? null, p_name: extra.name ?? null }).then(load);
 on('t-rename', async (form, d) => teamAct('rename', { team: form.dataset.team, name: d.name }));
-on('t-delete', async (el) => { if (confirm('Remove this team? Its members go back to having no team.')) await teamAct('delete_team', { team: el.dataset.team }); });
+on('t-delete', async (el) => { if (confirmed(el, 'Remove this team? Its members go back to having no team.')) await teamAct('delete_team', { team: el.dataset.team }); });
 on('p-move', async (el) => { if (el.value) await teamAct('move_player', { team: el.value, user: el.dataset.user }); });
-on('p-remove', async (el) => { if (confirm(`Remove ${el.dataset.name} from this game?`)) await teamAct('remove_player', { user: el.dataset.user }); });
+on('p-remove', async (el) => { if (confirmed(el, `Remove ${el.dataset.name} from this game?`)) await teamAct('remove_player', { user: el.dataset.user }); });
 on('p-check', async (el) => teamAct('mark_checked', { user: el.dataset.user }));
 
 // ---------------------------------------------------------------------------
@@ -302,8 +302,8 @@ on('run-tournament', async () => {
     setUi('tourn', { running: false, error: e.message });
   }
 });
-on('reopen-tournament', async () => {
-  if (!confirm('Reopen submissions? Students can change their strategies and you can run the tournament again.')) return;
+on('reopen-tournament', async (el) => {
+  if (!confirmed(el, 'Reopen submissions? Students can change their strategies and you can run the tournament again.')) return;
   await rpc('instructor_reopen_tournament', { p_session: current });
   load();
 });
