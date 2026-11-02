@@ -1,6 +1,6 @@
 // Per-game decision forms, results and charts for the student screen.
-import { html, raw, store, setUi, on, money, num, pct } from '../lib/dom.js';
-import { variableCost, marginalCost } from '../lib/engine.js';
+import { html, raw, store, setUi, on, money, num, pct, rerender } from '../lib/dom.js';
+import { variableCost, marginalCost, laborHours, marginalProduct, normalizeConfig } from '../lib/engine.js';
 import { lineChart, sample, barChart } from '../lib/chart.js';
 import { serverNow } from '../app.js';
 import { submit } from './play.js';
@@ -75,24 +75,26 @@ function marketForm(g, c) {
   const p = { ...v, ...(store.ui.preview || {}) };
   const enabled = canSubmit(g);
   const hasQty = t !== 'oligopoly';
+  const hard = c.difficulty === 'hard';
   return html`
     ${captainNote(g)}
     <form class="market-form" data-action="submit-market">
       <fieldset ${enabled ? '' : 'disabled'}>
-        <label class="switch"><input type="checkbox" name="participate" ${v.participate ? 'checked' : ''} data-input="preview"> <span>Sell this round</span></label>
+        <label class="switch"><input type="checkbox" name="participate" ${v.participate ? 'checked' : ''} data-input="preview"> <span>Open for business this round</span></label>
         <div class="fields ${p.participate ? '' : 'off'}">
-          <label>Price per unit ($)<input name="price" type="number" inputmode="decimal" min="0" max="${c.max_price}" step="0.01" value="${v.price}" data-input="preview" ${p.participate ? 'required' : ''}></label>
-          ${hasQty ? html`<label>Quantity to produce<input name="quantity" type="number" inputmode="numeric" min="0" max="${c.max_quantity}" step="1" value="${v.quantity}" data-input="preview" ${p.participate ? 'required' : ''}></label>` : ''}
+          <label>Price per ${c.product || 'unit'} ($)<input name="price" type="number" inputmode="decimal" min="0" max="${c.max_price}" step="0.01" value="${v.price}" data-input="preview" ${p.participate ? 'required' : ''}></label>
+          ${hasQty ? html`<label>${cap(c.product_plural || 'units')} to make<input name="quantity" type="number" inputmode="numeric" min="0" max="${c.max_quantity}" step="1" value="${v.quantity}" data-input="preview" ${p.participate ? 'required' : ''}></label>` : ''}
           ${t === 'monopolistic' ? html`<label>Branding spend ($)<input name="branding" type="number" inputmode="decimal" min="0" max="${c.max_branding}" step="1" value="${v.branding}" data-input="preview"></label>` : ''}
         </div>
         <button class="primary big" type="submit">${g.me.decision ? 'Update decision' : 'Submit decision'}</button>
       </fieldset>
     </form>
     ${submittedNote(g)}
-    ${preview(g, c, p)}
-    ${t === 'monopoly' ? monopolyChart(c, p) : ''}
-    ${costTable(c)}`;
+    ${hard ? previewHard(g, c, p) : preview(g, c, p)}
+    ${t === 'monopoly' ? monopolyChart(c, p, hard) : ''}
+    ${productionBlock(g, c)}`;
 }
+const cap = (t) => String(t).charAt(0).toUpperCase() + String(t).slice(1);
 
 on('preview', (el) => {
   const f = el.form;
@@ -115,18 +117,21 @@ on('submit-market', async (form) => {
   store.ui.preview = null;
 });
 
+const rentOf = (c) => c.fixed_cost * (1 - c.avoidable_share);
+
 function preview(g, c, p) {
   const t = g.session.game_type;
   const price = Number(p.price), q = Math.round(Number(p.quantity)), b = Number(p.branding || 0);
+  const unit = c.product_plural || 'units';
   if (!p.participate) {
-    return html`<div class="preview"><p>Sitting out costs <strong>${money(c.fixed_cost * (1 - c.avoidable_share))}</strong> (the unavoidable part of your fixed cost).</p></div>`;
+    return html`<div class="preview"><p>Closing this round still costs <strong>${money(rentOf(c))}</strong> in rent. You save the equipment and utilities cost.</p></div>`;
   }
   if (!(price > 0)) return html`<div class="preview muted">Enter a price to see what you would earn.</div>`;
   if (t === 'oligopoly') {
     const r = lastRes(g);
     const guesses = [...new Set([r?.sold, 40, 60, 80, 100].filter((x) => Number.isFinite(x) && x > 0))].sort((a, b2) => a - b2);
     return html`<div class="preview"><p class="pv-title">At ${money(price, 2)}, your profit if customers buy…</p>
-      <table class="mini"><thead><tr><th>Units sold</th><th>Revenue</th><th>Cost</th><th>Profit</th></tr></thead><tbody>
+      <table class="mini"><thead><tr><th>${cap(unit)} sold</th><th>Revenue</th><th>Cost</th><th>Profit</th></tr></thead><tbody>
       ${guesses.map((n) => { const cost = c.fixed_cost + variableCost(n, c); return html`<tr class="${n === r?.sold ? 'hl' : ''}"><td>${n}${n === r?.sold ? ' (last round)' : ''}</td><td>${money(price * n)}</td><td>${money(cost)}</td><td class="${price * n - cost < 0 ? 'neg' : 'pos'}">${money(price * n - cost)}</td></tr>`; })}
       </tbody></table></div>`;
   }
@@ -136,41 +141,161 @@ function preview(g, c, p) {
   if (t === 'monopoly') {
     const D = Math.max(0, c.demand_a - c.demand_b * price);
     sold = Math.min(q, Math.floor(D));
-    extra = html`<p>Buyers want <strong>${num(D)}</strong> units at this price, so you sell <strong>${num(sold)}</strong>${q > D ? html` and <span class="neg">${num(q - sold)} go unsold</span>` : ''}.</p>`;
+    extra = html`<p>Buyers want <strong>${num(D)}</strong> ${unit} at this price, so you sell <strong>${num(sold)}</strong>${q > D ? html` and <span class="neg">${num(q - sold)} go unsold</span>` : ''}.</p>`;
   }
   const rev = price * sold;
+  const hours = laborHours(q, c);
   return html`<div class="preview">
-    ${t === 'monopoly' ? extra : html`<p class="pv-title">If you sell all ${num(q)} units at ${money(price, 2)}:</p>`}
+    ${t === 'monopoly' ? extra : html`<p class="pv-title">If you sell all ${num(q)} ${unit} at ${money(price, 2)}:</p>`}
     <dl class="pv">
       <div><dt>Revenue</dt><dd>${money(rev)}</dd></div>
       <div><dt>Total cost</dt><dd>${money(cost)}</dd></div>
       <div class="big"><dt>Profit</dt><dd class="${rev - cost < 0 ? 'neg' : 'pos'}">${money(rev - cost)}</dd></div>
-      <div><dt>Marginal cost of unit ${num(q)}</dt><dd>${money(marginalCost(q, c), 2)}</dd></div>
+      <div><dt>Cost of ${c.product ? `${c.product} #${num(q)}` : `unit ${num(q)}`} (marginal cost)</dt><dd>${money(marginalCost(q, c), 2)}</dd></div>
+      ${hours !== null ? html`<div><dt>Labor needed</dt><dd>${num(hours, 1)} hours</dd></div>` : ''}
     </dl>
-    ${t === 'competitive' ? html`<p class="hint">Unsold units still cost you. Anything priced above what buyers pay elsewhere may not sell.</p>` : ''}
+    ${t === 'competitive' ? html`<p class="hint">Unsold ${unit} still cost you. Anything priced above what buyers pay elsewhere may not sell.</p>` : ''}
   </div>`;
 }
 
-function monopolyChart(c, p) {
-  const maxQ = c.demand_a;
-  const pts = (f) => sample(f, 0, maxQ, 50);
-  const series = [
-    { name: 'Demand', color: 'demand', points: pts((q) => Math.max(0, (c.demand_a - q) / c.demand_b)) },
-    { name: 'Marginal cost', color: 'supply', points: pts((q) => marginalCost(q, c)).filter(([, y]) => y <= c.max_price * 1.2) },
-  ];
-  const price = Number(p.price), q = Number(p.quantity);
-  if (price > 0 && q >= 0 && p.quantity !== '') series.push({ name: 'Your choice', color: 'mark', dots: true, points: [[Math.min(q, maxQ), price]] });
-  return lineChart({ series, xLabel: 'Quantity', yLabel: 'Price ($)', title: 'Your market' });
+function previewHard(g, c, p) {
+  const t = g.session.game_type;
+  const price = Number(p.price), q = Math.round(Number(p.quantity));
+  const unit = c.product_plural || 'units';
+  if (!p.participate) return html`<div class="preview"><p>You are closing this round. Which of your costs do you still pay?</p></div>`;
+  if (!(price > 0)) return html`<div class="preview muted">Enter a price.</div>`;
+  if (t === 'oligopoly') return html`<div class="preview"><p>Every ${c.product} you sell brings in <strong>${money(price, 2)}</strong>. Use your cost worksheet to decide whether that covers the cost of making it.</p></div>`;
+  if (!(q >= 0) || p.quantity === '') return html`<div class="preview muted">Enter a quantity.</div>`;
+  let sold = q, extra = '';
+  if (t === 'monopoly') {
+    const D = Math.max(0, c.demand_a - c.demand_b * price);
+    sold = Math.min(q, Math.floor(D));
+    extra = html`<p>Buyers want <strong>${num(D)}</strong> ${unit} at this price, so you would sell <strong>${num(sold)}</strong>.</p>`;
+  }
+  return html`<div class="preview">${extra}
+    <dl class="pv"><div><dt>Revenue${t === 'monopoly' ? '' : ` if you sell all ${num(q)}`}</dt><dd>${money(price * sold)}</dd></div></dl>
+    <p class="hint">Hard mode: work out your costs and profit with the worksheet below.</p></div>`;
 }
 
-function costTable(c) {
+function monopolyChart(c, p, hard) {
+  const maxQ = c.demand_a;
+  const pts = (f) => sample(f, 0, maxQ, 50);
+  const series = [{ name: 'Demand', color: 'demand', points: pts((q) => Math.max(0, (c.demand_a - q) / c.demand_b)) }];
+  if (!hard) series.push({ name: 'Marginal cost', color: 'supply', points: pts((q) => marginalCost(q, c)).filter(([, y]) => y <= c.max_price * 1.2) });
+  const price = Number(p.price), q = Number(p.quantity);
+  if (price > 0 && q >= 0 && p.quantity !== '') series.push({ name: 'Your choice', color: 'mark', dots: true, points: [[Math.min(q, maxQ), price]] });
+  return lineChart({ series, xLabel: c.product_plural ? cap(c.product_plural) : 'Quantity', yLabel: 'Price ($)', title: 'Your market' });
+}
+
+// ---------------------------------------------------------------------------
+// Production story: inputs, production table, cost table (normal) or worksheet (hard)
+
+const STEPS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120];
+const hoursAt = (q, c) => Math.round(laborHours(q, c) * 100) / 100;
+
+function productionBlock(g, c) {
+  if (!c.wage) return legacyCostTable(c);
+  const hard = c.difficulty === 'hard';
+  const mat = c.material_qty * c.material_price;
+  return html`<details class="costs production">
+    <summary>Your ${c.business}: inputs and costs</summary>
+    <ul class="inputs">
+      <li><span>Labor</span><strong>${money(c.wage, 2)} per hour</strong></li>
+      <li><span>${cap(c.material_name)}</span><strong>${c.material_qty} ${c.material_unit} per ${c.product} at ${money(c.material_price, 2)} per ${c.material_unit}</strong></li>
+      <li><span>Rent</span><strong>${money(rentOf(c))} per round, even if you close</strong></li>
+      <li><span>Equipment and utilities</span><strong>${money(c.fixed_cost * c.avoidable_share)} per round, only when open</strong></li>
+    </ul>
+    <h3>Production table</h3>
+    <p class="small muted">Labor hours needed to make each amount. Each extra hour adds fewer ${c.product_plural} than the last.</p>
+    <div class="scroll"><table class="mini"><thead><tr><th>${cap(c.product_plural)}</th><th>Labor hours needed</th>${hard ? '' : html`<th>Extra ${c.product_plural} per extra hour</th>`}</tr></thead><tbody>
+      ${STEPS.map((q, i) => html`<tr><td>${q}</td><td>${num(hoursAt(q, c), 2)}</td>${hard ? '' : html`<td>${i === 0 ? '–' : num(10 / (hoursAt(q, c) - hoursAt(STEPS[i - 1], c)), 2)}</td>`}</tr>`)}
+    </tbody></table></div>
+    ${hard ? worksheet(g, c) : html`
+      <h3>Cost table</h3>
+      <div class="scroll"><table class="mini"><thead><tr><th>${cap(c.product_plural)}</th><th>Labor cost</th><th>${cap(c.material_name)}</th><th>Fixed cost</th><th>Total cost</th><th>Average cost</th><th>Marginal cost</th></tr></thead><tbody>
+        ${STEPS.map((q) => { const lab = hoursAt(q, c) * c.wage, m2 = q * mat, tc = c.fixed_cost + lab + m2; return html`<tr><td>${q}</td><td>${money(lab)}</td><td>${money(m2)}</td><td>${money(c.fixed_cost)}</td><td>${money(tc)}</td><td>${q ? money(tc / q, 2) : '–'}</td><td>${money(marginalCost(q, c), 2)}</td></tr>`; })}
+      </tbody></table></div>
+      <p class="hint">Marginal cost = wage ÷ extra ${c.product_plural} per hour + ${c.material_name} per ${c.product}. At ${4 * c.productivity_half} ${c.product_plural}: ${money(c.wage, 2)} ÷ ${num(marginalProduct(4 * c.productivity_half, c), 2)} + ${money(mat, 2)} = ${money(marginalCost(4 * c.productivity_half, c), 2)}.</p>`}
+  </details>`;
+}
+
+function legacyCostTable(c) {
   const qs = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 120, 150];
   return html`<details class="costs"><summary>Your cost table</summary>
     <table class="mini"><thead><tr><th>Quantity</th><th>Total cost</th><th>Average cost</th><th>Marginal cost</th></tr></thead><tbody>
     ${qs.map((q) => { const tc = c.fixed_cost + variableCost(q, c); return html`<tr><td>${q}</td><td>${money(tc)}</td><td>${q ? money(tc / q, 2) : '–'}</td><td>${money(marginalCost(q, c), 2)}</td></tr>`; })}
-    </tbody></table>
-    <p class="hint">Total cost = ${money(c.fixed_cost)} fixed + ${c.mc_intercept} × Q + ${c.mc_slope / 2} × Q².</p></details>`;
+    </tbody></table></details>`;
 }
+
+// Hard-mode worksheet: students fill in costs; Check marks each cell.
+const WS_ROWS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+const WS_COLS = [['labor', 'Labor cost'], ['mat', 'Materials'], ['tc', 'Total cost'], ['mc', 'Marginal cost per unit']];
+function wsAnswers(c) {
+  const mat = c.material_qty * c.material_price;
+  const out = {};
+  let prevTc = null;
+  for (const q of WS_ROWS) {
+    const labor = Math.round(hoursAt(q, c) * c.wage * 100) / 100;
+    const m2 = Math.round(q * mat * 100) / 100;
+    const tc = Math.round((c.fixed_cost + labor + m2) * 100) / 100;
+    out[`${q}:labor`] = labor; out[`${q}:mat`] = m2; out[`${q}:tc`] = tc;
+    if (prevTc !== null) out[`${q}:mc`] = Math.round(((tc - prevTc) / 10) * 100) / 100;
+    prevTc = tc;
+  }
+  return out;
+}
+const wsKey = () => `econ-ws-${store.game?.session?.id}`;
+function wsState() {
+  if (!store.ui.ws || store.ui.ws.key !== wsKey()) {
+    let values = {};
+    try { values = JSON.parse(localStorage.getItem(wsKey()) || '{}'); } catch { /* storage unavailable */ }
+    store.ui.ws = { key: wsKey(), values, marks: {} };
+  }
+  return store.ui.ws;
+}
+function worksheet(g, c) {
+  const ws = wsState();
+  const correct = Object.values(ws.marks).filter((m) => m === 'ok').length;
+  const total = Object.keys(ws.marks).length;
+  return html`<h3>Your cost worksheet</h3>
+    <p class="small muted">Fill in your costs from the production table and input prices. Fixed cost is ${money(c.fixed_cost)} (rent + equipment). Marginal cost per unit is the change in total cost from the row above, divided by 10. Your answers are saved on this device.</p>
+    <div class="scroll"><table class="mini worksheet"><thead><tr><th>${cap(c.product_plural)}</th><th>Labor hours</th>${WS_COLS.map(([, l]) => html`<th>${l}</th>`)}</tr></thead><tbody>
+      ${WS_ROWS.map((q) => html`<tr><td>${q}</td><td>${num(hoursAt(q, c), 2)}</td>${WS_COLS.map(([k]) => {
+        if (k === 'mc' && q === 0) return html`<td>–</td>`;
+        const key = `${q}:${k}`;
+        const mark = ws.marks[key];
+        return html`<td class="${mark || ''}"><input type="number" step="0.01" inputmode="decimal" name="ws_${q}_${k}" value="${ws.values[key] ?? ''}" data-input="ws-input" data-k="${key}" aria-label="${k} at ${q}"></td>`;
+      })}</tr>`)}
+    </tbody></table></div>
+    <div class="row wrap"><button type="button" data-action="ws-check">Check my answers</button><button type="button" class="link" data-action="ws-clear">Clear</button>
+      ${total ? html`<span class="${correct === total ? 'saved' : 'small'}">${correct} of ${total} filled cells correct</span>` : ''}</div>`;
+}
+on('ws-input', (el) => {
+  const ws = wsState();
+  ws.values[el.dataset.k] = el.value;
+  delete ws.marks[el.dataset.k];
+  el.closest('td')?.classList.remove('ok', 'bad');
+  try { localStorage.setItem(wsKey(), JSON.stringify(ws.values)); } catch { /* storage unavailable */ }
+});
+on('ws-check', () => {
+  const ws = wsState();
+  const c = normalizeConfig(store.game.session.game_type, store.game.session.config);
+  const ans = wsAnswers(c);
+  ws.marks = {};
+  for (const [k, v] of Object.entries(ws.values)) {
+    if (v === '' || v === null || v === undefined || ans[k] === undefined) continue;
+    const tol = k.endsWith(':mc') ? 0.06 : Math.max(0.51, Math.abs(ans[k]) * 0.005);
+    ws.marks[k] = Math.abs(Number(v) - ans[k]) <= tol ? 'ok' : 'bad';
+  }
+  rerender();
+});
+on('ws-clear', () => {
+  const ws = wsState();
+  ws.values = {}; ws.marks = {};
+  try { localStorage.removeItem(wsKey()); } catch { /* ignore */ }
+  for (const i of document.querySelectorAll('.worksheet input')) { i.value = ''; i.dataset.dirty = ''; }
+  rerender();
+});
 
 // ---------------------------------------------------------------------------
 // Prisoner's dilemma (live)
@@ -304,7 +429,12 @@ export function lastResult(g, c) {
         ${t !== 'oligopoly' ? html`<div><dt>Produced</dt><dd>${num(r.produced)}</dd></div>` : ''}
         <div><dt>Sold</dt><dd>${num(r.sold)}${r.unsold ? html` <span class="neg small">(${num(r.unsold)} unsold)</span>` : ''}</dd></div>
         <div><dt>Revenue</dt><dd>${money(r.revenue)}</dd></div>
-        <div><dt>Costs</dt><dd>${money(r.total_cost)}</dd></div>
+        ${r.labor_hours !== undefined && r.labor_hours !== null ? html`
+          <div><dt>Labor (${num(r.labor_hours, 1)} hours)</dt><dd>${money(r.labor_cost)}</dd></div>
+          <div><dt>${cap(c.material_name || 'materials')}</dt><dd>${money(r.material_cost)}</dd></div>
+          <div><dt>Rent + equipment</dt><dd>${money(r.rent + r.equipment)}</dd></div>
+          ${r.branding ? html`<div><dt>Branding</dt><dd>${money(r.branding)}</dd></div>` : ''}` : ''}
+        <div><dt>Total costs</dt><dd>${money(r.total_cost)}</dd></div>
         ${t === 'monopolistic' ? html`<div><dt>Brand strength</dt><dd>${num(r.brand_stock)}</dd></div>` : ''}
         <div class="big"><dt>Profit</dt><dd class="${r.profit < 0 ? 'neg' : 'pos'}">${money(r.profit)}</dd></div>
       </dl>` : html`<p>${r.auto ? 'You missed the deadline, so you sat out.' : 'You sat this round out.'} Cost: <span class="neg">${money(-r.profit)}</span>.</p>`;

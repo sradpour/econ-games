@@ -227,7 +227,9 @@ fieldset:disabled { opacity: .6; }
 
 .teamstrip { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 14px; background: var(--surface); border: 1px dashed var(--ink-2); border-radius: var(--r-sm); margin-bottom: 14px; }
 .live-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; align-items: start; }
-@media (max-width: 860px) { .live-grid { grid-template-columns: 1fr; } }
+@media (max-width: 860px) { .live-grid { grid-template-columns: minmax(0, 1fr); } }
+.col-main, .col-side, .card, details { min-width: 0; }
+.scroll { max-width: 100%; }
 .decide { border: 2px solid var(--ink); }
 .market-form .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 14px 0; }
 .market-form .fields.off { opacity: .4; }
@@ -366,7 +368,7 @@ pre.mono { background: var(--paper); border: 1px solid var(--line); border-radiu
 .ctrl-status .timer { margin: 0 0 8px; }
 .exports { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
 .ctrl-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; align-items: start; }
-@media (max-width: 860px) { .ctrl-grid { grid-template-columns: 1fr; } }
+@media (max-width: 860px) { .ctrl-grid { grid-template-columns: minmax(0, 1fr); } }
 .sub-grid { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px; }
 .sub-grid li { display: grid; padding: 8px 10px; border-radius: var(--r-sm); border: 1px solid var(--line); }
 .sub-grid li.in { background: var(--demand-soft); border-color: var(--demand); }
@@ -425,3 +427,10 @@ pre.mono { background: var(--paper); border: 1px solid var(--line); border-radiu
 
 button.armed, .button.armed { background: var(--neg); border-color: var(--neg); color: #fff; }
 .toast.warn { background: var(--hi); color: var(--hi-ink); }
+
+.production .inputs { list-style: none; padding: 0; margin: 10px 0; display: grid; gap: 6px; }
+.production .inputs li { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-bottom: 1px dashed var(--line); padding: 4px 0; }
+.production .inputs span { color: var(--muted); }
+.worksheet input { width: 92px; min-height: 36px; padding: 4px 6px; font-size: .92rem; text-align: right; }
+.worksheet td.ok input { border-color: var(--pos); background: color-mix(in srgb, var(--pos) 12%, var(--paper)); }
+.worksheet td.bad input { border-color: var(--neg); background: var(--supply-soft); }

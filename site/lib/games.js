@@ -1,46 +1,63 @@
 // Game catalogue: descriptions, instructor settings and comprehension checks.
-import { DEFAULTS, GAME_LABELS, normalizeConfig, variableCost } from './engine.js';
+import { DEFAULTS, GAME_LABELS, normalizeConfig, variableCost, marginalProduct } from './engine.js';
 
 export { GAME_LABELS, normalizeConfig };
 export const MARKETS = ['competitive', 'monopolistic', 'oligopoly', 'monopoly'];
+
+// Production stories: same economics, different names. Instructors can edit every label and number.
+export const STORIES = {
+  bakery: { business: 'bakery', product: 'loaf', product_plural: 'loaves', material_name: 'flour and ingredients', material_unit: 'lb', material_qty: 0.25, material_price: 2 },
+  pizza: { business: 'pizzeria', product: 'pizza', product_plural: 'pizzas', material_name: 'dough and toppings', material_unit: 'lb', material_qty: 0.25, material_price: 2 },
+  coffee: { business: 'coffee cart', product: 'cup', product_plural: 'cups', material_name: 'coffee beans and milk', material_unit: 'serving', material_qty: 1, material_price: 0.5 },
+};
+const cap = (t) => String(t).charAt(0).toUpperCase() + String(t).slice(1);
+const a_an = (w) => (/^[aeiou]/i.test(w) ? 'an' : 'a');
+export const rentOf = (c) => c.fixed_cost * (1 - c.avoidable_share);
+export const equipmentOf = (c) => c.fixed_cost * c.avoidable_share;
+export function productionLines(c) {
+  return [
+    `Making ${c.product_plural} takes labor at ${money2(c.wage)} per hour, plus ${c.material_name}: ${c.material_qty} ${c.material_unit} per ${c.product} at ${money2(c.material_price)} per ${c.material_unit}.`,
+    `The first hour of labor makes ${c.base_productivity} ${c.product_plural}. Each extra hour makes fewer than the one before (your kitchen gets crowded), so every extra ${c.product} costs more than the last.`,
+    `Rent is ${money2(rentOf(c))} per round no matter what. Equipment and utilities cost ${money2(equipmentOf(c))} per round, which you save if you sit a round out.`,
+  ];
+}
 
 export const GAME_INFO = {
   competitive: {
     short: 'Many firms sell an identical product. Each round you post a price and choose how much to produce.',
     rules: (c) => [
-      'You run one of many firms selling the same product. Buyers go to the cheapest sellers first.',
-      `Each round choose a price and a quantity. You pay for everything you produce, sold or not.`,
-      `Your marginal cost rises as you produce more: ${money2(c.mc_intercept)} + ${c.mc_slope} × quantity.`,
-      `Fixed cost is ${money2(c.fixed_cost)} per round. Sitting a round out saves ${pctTxt(c.avoidable_share)} of it.`,
+      `You run one of many ${c.business === 'bakery' ? 'bakeries' : c.business + 's'} in town, all selling the same ${c.product}. Buyers go to the cheapest sellers first.`,
+      `Each round choose a price and how many ${c.product_plural} to make. You pay for everything you make, sold or not.`,
+      ...productionLines(c),
     ],
   },
   monopolistic: {
     short: 'Many firms with slightly different products. Set price and quantity, and spend on branding to win loyal customers.',
     rules: (c) => [
-      'You run one of many firms selling similar, but not identical, products.',
-      'Each round choose a price, a quantity and how much to spend on branding.',
+      `You run one of many ${c.business}s in town. Each makes its own slightly different ${c.product}.`,
+      `Each round choose a price, how many ${c.product_plural} to make, and how much to spend on branding.`,
       'Lower prices attract more customers. Customers who cannot buy from you because you ran out are lost.',
       'Branding costs money now but builds a brand: customers like your product more and care less about price. Brand strength fades by about a third each round unless you keep investing.',
-      `Marginal cost: ${money2(c.mc_intercept)} + ${c.mc_slope} × quantity. Fixed cost ${money2(c.fixed_cost)} per round (sitting out saves ${pctTxt(c.avoidable_share)}).`,
+      ...productionLines(c),
     ],
   },
   oligopoly: {
     short: 'A handful of firms with slightly different products compete on price. You produce exactly what customers buy.',
     rules: (c) => [
-      'Your firm competes with a few rivals selling similar products.',
-      'Each round you choose only a price. You make exactly as many units as customers buy.',
+      `Your ${c.business} competes with a few rivals selling similar ${c.product_plural}.`,
+      `Each round you choose only a price. You make exactly as many ${c.product_plural} as customers order.`,
       'If you charge more than your rivals you still sell some, just fewer. Demand also moves a little at random each round.',
-      `Marginal cost: ${money2(c.mc_intercept)} + ${c.mc_slope} × quantity. Fixed cost ${money2(c.fixed_cost)} per round (sitting out saves ${pctTxt(c.avoidable_share)}).`,
+      ...productionLines(c),
       'Talking to other teams about prices is not allowed.',
     ],
   },
   monopoly: {
     short: 'You are the only seller. You see the demand curve and choose price and quantity.',
     rules: (c) => [
-      'You are the only seller in your market, so the whole demand curve is yours.',
-      `Buyers want Q = ${c.demand_a} − ${c.demand_b} × P units at price P.`,
-      'Each round choose a price and a quantity. You sell the smaller of your quantity and what buyers want at your price.',
-      `Marginal cost: ${money2(c.mc_intercept)} + ${c.mc_slope} × quantity. Fixed cost ${money2(c.fixed_cost)} per round.`,
+      `You run the only ${c.business} in town, so the whole demand curve is yours.`,
+      `Buyers want Q = ${c.demand_a} − ${c.demand_b} × P ${c.product_plural} at price P.`,
+      `Each round choose a price and how many ${c.product_plural} to make. You sell the smaller of what you make and what buyers want at your price.`,
+      ...productionLines(c),
     ],
   },
   pd_live: {
@@ -104,10 +121,18 @@ const marketTiming = [
   S('missed', 'If a firm misses the deadline', 'select', '', { options: [['sit_out', 'It sits the round out'], ['keep_last', 'It keeps its last decision']] }),
 ];
 const costs = [
-  S('fixed_cost', 'Fixed cost per round ($)', 'number', '', { min: 0, step: 10 }),
-  S('avoidable_share', 'Share of fixed cost saved by sitting out', 'number', '0 to 1. The rest is sunk.', { min: 0, max: 1, step: 0.05 }),
-  S('mc_intercept', 'Marginal cost at zero output ($)', 'number', 'Marginal cost = this + slope × quantity.', { min: 0, step: 0.5 }),
-  S('mc_slope', 'Marginal cost slope', 'number', '', { min: 0, step: 0.01 }),
+  S('difficulty', 'Difficulty', 'select', 'Hard: students see only input prices and the production table, and build their own cost table on a worksheet.',
+    { options: [['normal', 'Normal: show the full cost table'], ['hard', 'Hard: students work out costs themselves']] }),
+  S('story', 'Business', 'select', 'Fills in the names below; you can edit them.', { options: [['bakery', 'Bakery (loaves)'], ['pizza', 'Pizzeria (pizzas)'], ['coffee', 'Coffee cart (cups)']] }),
+  S('business', 'Business name', 'text', ''), S('product', 'Product (one)', 'text', ''), S('product_plural', 'Product (many)', 'text', ''),
+  S('material_name', 'Raw material', 'text', ''), S('material_unit', 'Raw material unit', 'text', ''),
+  S('material_qty', 'Raw material per unit of product', 'number', '', { min: 0, step: 0.05 }),
+  S('material_price', 'Price per unit of raw material ($)', 'number', '', { min: 0, step: 0.05 }),
+  S('wage', 'Wage per labor hour ($)', 'number', '', { min: 0, step: 0.5 }),
+  S('base_productivity', 'Output from the first hour of labor', 'number', '', { min: 0.1, step: 0.5 }),
+  S('productivity_half', 'Output level where an extra hour adds half as much', 'number', 'Smaller = productivity falls faster = steeper marginal cost.', { min: 1, step: 1 }),
+  S('fixed_cost', 'Fixed cost per round ($): rent + equipment', 'number', '', { min: 0, step: 10 }),
+  S('avoidable_share', 'Share of fixed cost that is equipment & utilities', 'number', '0 to 1. Saved by sitting a round out; the rest is rent.', { min: 0, max: 1, step: 0.05 }),
 ];
 const display = [
   S('leaderboard', 'Leaderboard', 'select', '', { options: [['live', 'Show after every round'], ['end', 'Show at the end'], ['never', 'Never show students']] }),
@@ -200,18 +225,30 @@ const uniq = (answer, list) => [...new Set(list.map(String))].filter((x) => x !=
 
 export function quizFor(gameType, cfg) {
   const c = normalizeConfig(gameType, cfg);
-  const mc50 = c.mc_intercept + c.mc_slope * 50;
   const sitOut = c.fixed_cost * (1 - c.avoidable_share);
-  const mcQ = () => Q(`What does it cost you to make the 50th unit (its marginal cost)?`, m(mc50),
-    uniq(m(mc50), [m(c.mc_intercept), m(c.mc_intercept + c.mc_slope * 25), m(variableCost(50, c)), m(mc50 * 2)]));
-  const sitQ = () => Q('If you sit a round out, what do you pay that round?', m(sitOut),
+  const mcQ = () => {
+    if (!c.wage) {
+      const mc50 = c.mc_intercept + c.mc_slope * 50;
+      return Q('What does it cost you to make the 50th unit (its marginal cost)?', m(mc50), uniq(m(mc50), [m(c.mc_intercept), m(variableCost(50, c)), m(mc50 * 2)]));
+    }
+    const q = Math.round(4 * c.productivity_half);
+    const mp = marginalProduct(q, c);
+    const mat = c.material_qty * c.material_price;
+    const mc = c.wage / mp + mat;
+    const mpTxt = Math.round(mp * 100) / 100;
+    return Q(`You are making ${q} ${c.product_plural}. One more hour of labor would add ${mpTxt} ${c.product_plural}. Labor costs ${money2(c.wage)} an hour and ${c.material_name} cost ${money2(mat)} per ${c.product}. What does one more ${c.product} cost you?`,
+      m(mc), uniq(m(mc), [m(c.wage / mp), m(c.wage), m(c.wage * mp + mat), m(mat)]));
+  };
+  const sitQ = () => Q(c.wage ? 'If you sit a round out, what do you still pay that round?' : 'If you sit a round out, what do you pay that round?', m(sitOut),
     uniq(m(sitOut), [m(0), m(c.fixed_cost), m(c.fixed_cost * 2)]));
+  const mpQ = () => Q(`Why does each extra ${c.product} cost more to make than the last?`, 'Each extra hour of labor adds fewer units than the one before',
+    ['The wage goes up every hour', `The price of ${c.material_name} rises as you buy more`, 'Rent goes up when you produce more']);
   switch (gameType) {
     case 'competitive':
       return [mcQ(),
-        Q('You produce 80 units but price above what buyers will pay. What happens?', 'You sell nothing and still pay for all 80 units',
+        Q(`You make 80 ${c.product_plural} but price above what buyers will pay. What happens?`, 'You sell nothing and still pay for all 80',
           ['Unsold units carry over to next round', 'You only pay for the units you sell', 'The game sells them at the market price for you']),
-        sitQ()];
+        sitQ(), mpQ()];
     case 'monopolistic':
       return [mcQ(),
         Q('What does spending on branding do?', 'Costs money now; builds a brand that makes customers like you more and care less about price, fading over time',

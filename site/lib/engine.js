@@ -30,8 +30,19 @@ const MARKET_COMMON = {
   team_mode: 'individual',   // 'individual' | 'teams'
   team_size: 4,
   fixed_cost: 100,
-  avoidable_share: 0.5,      // share of the fixed cost saved by sitting a round out
-  mc_intercept: 2,           // marginal cost = mc_intercept + mc_slope * q
+  avoidable_share: 0.5,      // share of the fixed cost saved by sitting a round out (equipment & utilities; the rest is rent)
+  // Production story: labor with diminishing marginal product + ingredients per unit.
+  // Marginal cost = material_qty*material_price + wage / MP(q), with MP(q) = base_productivity / (1 + q / productivity_half)
+  story: 'bakery',
+  business: 'bakery', product: 'loaf', product_plural: 'loaves',
+  material_name: 'flour and ingredients', material_unit: 'lb',
+  wage: 15,                  // $ per labor hour
+  base_productivity: 10,     // units produced by the first hour of labor
+  productivity_half: 15,     // output level at which an extra hour adds half as much as the first hour
+  material_qty: 0.25,        // units of material per unit of output
+  material_price: 2,         // $ per unit of material
+  difficulty: 'normal',      // 'normal' shows the full cost table; 'hard' shows only the production data
+  mc_intercept: 2,           // derived from the production story (kept for older games)
   mc_slope: 0.1,
   missed: 'sit_out',         // 'sit_out' | 'keep_last' when a team misses the deadline
   leaderboard: 'live',       // 'live' | 'end' | 'never'
@@ -122,6 +133,13 @@ export function normalizeConfig(gameType, cfg = {}) {
     out.max_rounds = Math.max(out.min_rounds, Math.round(out.max_rounds));
   }
   if (out.team_mode !== 'teams') out.team_mode = 'individual';
+  if ('wage' in base && (cfg.wage !== undefined || cfg.mc_intercept === undefined)) {
+    out.base_productivity = Math.max(0.01, out.base_productivity);
+    out.productivity_half = Math.max(0.01, out.productivity_half);
+    out.mc_intercept = out.material_qty * out.material_price + out.wage / out.base_productivity;
+    out.mc_slope = out.wage / (out.base_productivity * out.productivity_half);
+  }
+  if (out.difficulty !== 'hard') out.difficulty = out.difficulty === undefined ? 'normal' : (out.difficulty === 'hard' ? 'hard' : 'normal');
   return out;
 }
 
@@ -164,6 +182,34 @@ export function variableCost(q, c) {
   return c.mc_intercept * q + (c.mc_slope / 2) * q * q;
 }
 export function marginalCost(q, c) { return c.mc_intercept + c.mc_slope * q; }
+
+/** Labor hours needed to produce q units (inverse of the production function). */
+export function laborHours(q, c) {
+  if (!c.wage) return null;
+  const l1 = 1 / c.base_productivity;
+  const l2 = 1 / (c.base_productivity * c.productivity_half);
+  return l1 * q + (l2 / 2) * q * q;
+}
+/** Extra units from one more hour of labor when already producing q (marginal product of labor). */
+export function marginalProduct(q, c) { return c.base_productivity / (1 + q / c.productivity_half); }
+/** Units produced with L hours of labor (the production function). */
+export function outputFromHours(L, c) {
+  const l1 = 1 / c.base_productivity, l2 = 1 / (c.base_productivity * c.productivity_half);
+  return (-l1 + Math.sqrt(l1 * l1 + 2 * l2 * L)) / l2;
+}
+
+function costBreakdown(produced, c, participating) {
+  const rent = round2(c.fixed_cost * (1 - c.avoidable_share));
+  const equipment = participating ? round2(c.fixed_cost * c.avoidable_share) : 0;
+  if (!participating) return { labor_hours: 0, labor_cost: 0, material_cost: 0, rent, equipment };
+  const hours = laborHours(produced, c);
+  return {
+    labor_hours: hours === null ? null : round2(hours),
+    labor_cost: hours === null ? null : round2(hours * c.wage),
+    material_cost: round2(produced * (c.material_qty ?? 0) * (c.material_price ?? 0)),
+    rent, equipment,
+  };
+}
 
 /** Posted-offer market with efficient rationing: cheapest sellers are served first. */
 export function allocateRationing(offers, demandAt, noise, rng) {
@@ -445,6 +491,7 @@ function resolveMarket(ctx, rng) {
       payload = {
         participated: true, auto: e.auto, price: e.price, produced, sold: units, unsold: produced - units,
         revenue, variable_cost: vc, fixed_cost: fixed, branding, total_cost: total, profit,
+        ...costBreakdown(produced, c, true),
       };
       if (gameType === 'monopolistic') { payload.brand_stock = state.brand[t.id]; payload.demand = e.demand; }
     } else {
@@ -452,6 +499,7 @@ function resolveMarket(ctx, rng) {
       payload = {
         participated: false, auto: e.auto, price: null, produced: 0, sold: 0, unsold: 0,
         revenue: 0, variable_cost: 0, fixed_cost: fixed, branding: 0, total_cost: fixed, profit: -fixed,
+        ...costBreakdown(0, c, false),
       };
       if (gameType === 'monopolistic') payload.brand_stock = state.brand[t.id];
     }

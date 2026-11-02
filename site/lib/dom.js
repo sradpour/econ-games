@@ -24,8 +24,10 @@ function flat(v) {
 // DOM morphing
 
 function syncAttrs(from, to) {
-  for (const a of [...from.attributes]) if (!to.hasAttribute(a.name) && a.name !== 'data-dirty') from.removeAttribute(a.name);
-  for (const a of [...to.attributes]) if (from.getAttribute(a.name) !== a.value) from.setAttribute(a.name, a.value);
+  // A <details> element's open/closed state belongs to the user once it is on the page.
+  const keep = (name) => name === 'data-dirty' || (name === 'open' && from.tagName === 'DETAILS');
+  for (const a of [...from.attributes]) if (!to.hasAttribute(a.name) && !keep(a.name)) from.removeAttribute(a.name);
+  for (const a of [...to.attributes]) if (from.getAttribute(a.name) !== a.value && !keep(a.name)) from.setAttribute(a.name, a.value);
 }
 
 function syncFormValue(from, to) {

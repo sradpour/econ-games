@@ -182,3 +182,44 @@ test('config normalisation coerces strings and clamps round bounds', () => {
   assert.equal(c.max_rounds, 15);
   assert.equal(c.team_mode, 'individual');
 });
+
+import { laborHours, marginalProduct, marginalCost, outputFromHours, variableCost } from '../supabase/functions/_shared/engine.js';
+
+test('production story reproduces the calibrated cost curve', () => {
+  const c = normalizeConfig('competitive', {});
+  assert.equal(c.mc_intercept, 2);
+  assert.ok(Math.abs(c.mc_slope - 0.1) < 1e-12);
+  for (const q of [0, 10, 60, 100]) {
+    const fromStory = laborHours(q, c) * c.wage + q * c.material_qty * c.material_price;
+    assert.ok(Math.abs(fromStory - variableCost(q, c)) < 1e-9, `q=${q}`);
+    // MC = wage / MP + materials
+    assert.ok(Math.abs(c.wage / marginalProduct(q, c) + c.material_qty * c.material_price - marginalCost(q, c)) < 1e-9);
+  }
+  assert.equal(marginalProduct(60, c), 2);          // at equilibrium an extra hour adds 2 loaves
+  assert.ok(Math.abs(outputFromHours(laborHours(37, c), c) - 37) < 1e-9);
+  assert.ok(marginalProduct(10, c) > marginalProduct(50, c)); // diminishing marginal product
+});
+
+test('older games without the production fields keep their cost curve', () => {
+  const c = normalizeConfig('competitive', { mc_intercept: 3, mc_slope: 0.2 });
+  assert.equal(c.mc_intercept, 3);
+  assert.equal(c.mc_slope, 0.2);
+});
+
+test('results include labor hours and cost breakdown', () => {
+  const r = run('competitive', { rounds: 1, price_noise: 0 }, teams(2), (id) => (id === 't1' ? { price: 8, quantity: 60 } : undefined));
+  const a = r.allResults.find((x) => x.team_id === 't1').payload;
+  assert.equal(a.labor_hours, 18);
+  assert.equal(a.labor_cost, 270);
+  assert.equal(a.material_cost, 30);
+  assert.equal(a.rent + a.equipment, 100);
+  assert.equal(a.labor_cost + a.material_cost, a.variable_cost);
+  const b = r.allResults.find((x) => x.team_id === 't2').payload;
+  assert.equal(b.rent, 50); assert.equal(b.equipment, 0);
+});
+
+test('changing wage or productivity changes marginal cost', () => {
+  const c = normalizeConfig('monopoly', { wage: 20, base_productivity: 10, productivity_half: 10, material_qty: 1, material_price: 1 });
+  assert.equal(c.mc_intercept, 3);
+  assert.equal(c.mc_slope, 0.2);
+});

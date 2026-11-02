@@ -1,6 +1,7 @@
 import { html, store, setState, setUi, on, toast, rerender, plural, confirmed } from '../lib/dom.js';
 import { rpc } from '../lib/api.js';
-import { GAME_LABELS, GAME_INFO, SETTINGS, defaultsFor, MARKETS } from '../lib/games.js';
+import { GAME_LABELS, GAME_INFO, SETTINGS, defaultsFor, MARKETS, STORIES, normalizeConfig } from '../lib/games.js';
+import { marginalProduct } from '../lib/engine.js';
 import { go } from '../app.js';
 import { statusChip } from './student.js';
 
@@ -129,7 +130,7 @@ const PRESETS = {
   standard: { label: 'Standard', patch: {} },
   highfixed: { label: 'High fixed cost', patch: { fixed_cost: 300, avoidable_share: 0.8 }, help: 'Losses are likely; sitting out becomes a real choice (shutdown rule).' },
   sunk: { label: 'Mostly sunk fixed cost', patch: { fixed_cost: 250, avoidable_share: 0.1 }, help: 'Sitting out saves little, so firms keep selling at a loss.' },
-  steepmc: { label: 'Steep marginal cost', patch: { mc_slope: 0.25 }, help: 'Capacity feels tight: producing more gets expensive fast.' },
+  steepmc: { label: 'Fast-falling productivity', patch: { productivity_half: 6 }, help: 'The kitchen crowds quickly: each extra hour adds much less, so marginal cost rises steeply.' },
 };
 
 export function renderNewGame(classId) {
@@ -154,10 +155,18 @@ export function renderNewGame(classId) {
       ${ng.preset && PRESETS[ng.preset].help ? html`<p class="small muted">${PRESETS[ng.preset].help}</p>` : ''}</div>` : ''}
     <form class="card settings" data-action="create-game">
       <label>Title students will see <input name="title" required value="${values.title}" data-input="ng-field"></label>
+      ${MARKETS.includes(ng.type) ? costSummary(ng.type, values) : ''}
       <div class="settings-grid">${SETTINGS[ng.type].filter((s) => !s.showIf || s.showIf(values)).map((s) => field(s, values[s.key]))}</div>
       <div class="row"><button class="primary big" type="submit">Create game</button></div>
       <p class="small muted">Players join from their class page. You start the game when everyone is in.</p>
     </form></main>`;
+}
+
+function costSummary(type, values) {
+  const c = normalizeConfig(type, values);
+  const q = 4 * c.productivity_half;
+  return html`<div class="note small">With these settings, marginal cost = ${'$'}${c.mc_intercept.toFixed(2)} + ${c.mc_slope.toFixed(3)} × quantity.
+    At ${q} ${c.product_plural}, one more hour of labor adds ${marginalProduct(q, c).toFixed(2)} ${c.product_plural}, so the next ${c.product} costs ${'$'}${(c.mc_intercept + c.mc_slope * q).toFixed(2)}.</div>`;
 }
 
 function typeCard(t, classId) {
@@ -168,6 +177,7 @@ function typeCard(t, classId) {
 function field(s, v) {
   const id = `f_${s.key}`;
   if (s.type === 'bool') return html`<label class="switch wide"><input type="checkbox" name="${id}" ${v ? 'checked' : ''} data-change="ng-field"> <span>${s.label}</span>${s.help ? html`<span class="help">${s.help}</span>` : ''}</label>`;
+  if (s.type === 'text') return html`<label for="${id}">${s.label}<input id="${id}" type="text" name="${id}" value="${v ?? ''}" maxlength="40" data-input="ng-field">${s.help ? html`<span class="help">${s.help}</span>` : ''}</label>`;
   if (s.type === 'select') return html`<label for="${id}">${s.label}<select id="${id}" name="${id}" data-change="ng-field">${s.options.map(([val, lab]) => html`<option value="${val}" ${String(v) === val ? 'selected' : ''}>${lab}</option>`)}</select>${s.help ? html`<span class="help">${s.help}</span>` : ''}</label>`;
   return html`<label for="${id}">${s.label}<input id="${id}" type="number" name="${id}" value="${v}" ${s.min !== undefined ? `min="${s.min}"` : ''} ${s.max !== undefined ? `max="${s.max}"` : ''} step="${s.step ?? 'any'}" data-input="ng-field">${s.help ? html`<span class="help">${s.help}</span>` : ''}</label>`;
 }
@@ -189,6 +199,11 @@ on('ng-field', (el) => {
   const v = el.type === 'checkbox' ? el.checked : el.type === 'number' ? (el.value === '' ? '' : Number(el.value)) : el.value;
   const key = el.name.startsWith('f_') ? el.name.slice(2) : el.name;
   ng.values = { ...ng.values, [key]: v };
+  if (key === 'story' && STORIES[v]) {
+    ng.values = { ...ng.values, ...STORIES[v] };
+    for (const k of Object.keys(STORIES[v])) { const i = document.querySelector(`[name="f_${k}"]`); if (i) i.dataset.dirty = ''; }
+  }
+  if (MARKETS.includes(ng.type) && el.type === 'number') rerender(); // refresh the marginal cost summary
   if (el.tagName === 'SELECT' || el.type === 'checkbox') rerender(); // may show/hide dependent fields
 });
 on('create-game', async () => {
