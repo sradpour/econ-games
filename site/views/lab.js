@@ -28,7 +28,9 @@ export function renderLab(g, c) {
       <h2>1. Describe your strategy</h2>
       <form data-action="translate" class="stack">
         <textarea name="description" rows="5" maxlength="3000" data-input="lab-desc" placeholder="Example: Cooperate in the first round. After that, do whatever my opponent did last round, but forgive a single defection one time in three.">${description}</textarea>
-        <button class="primary" type="submit" ${L.translating ? 'disabled' : ''}>${L.translating ? 'Translating…' : code ? 'Translate again' : 'Translate'}</button>
+        <button class="primary" type="submit" ${L.translating ? 'disabled' : ''}>${L.translating ? `Translating… ${Math.round((Date.now() - L.translateStarted) / 1000)} s` : code ? 'Translate again' : 'Translate'}</button>
+        ${L.translating ? html`<p class="small muted">Sent to Google's Gemini; waiting for its answer. This usually takes 5–20 seconds. If nothing comes back within 90 seconds you'll see an error here.</p>` : ''}
+        ${L.translateError ? html`<p class="error">${L.translateError}</p>` : ''}
         ${saved.translations_used ? html`<p class="small muted">Translations used by your team: ${saved.translations_used} of 40.</p>` : ''}
       </form>
     </section>
@@ -80,15 +82,20 @@ const currentCode = () => lab().code ?? store.game.strategy?.code ?? '';
 on('lab-desc', (el) => { store.ui.lab = { ...lab(), description: el.value }; });
 on('lab-code', (el) => { store.ui.lab = { ...lab(), code: el.value, tests: null }; });
 
+let tick = null;
 async function doTranslate(body) {
-  setUi('lab', { translating: true });
+  setUi('lab', { translating: true, translateStarted: Date.now(), translateError: null });
+  clearInterval(tick);
+  tick = setInterval(() => setUi('lab', {}), 1000); // refresh the elapsed-seconds counter
   try {
     const r = await translateStrategy({ session_id: sid(), ...body });
     setUi('lab', { code: r.code, explanation: r.explanation, assumptions: r.assumptions, tests: null, translating: false, description: body.description });
     await rpc('save_strategy', { p_session: sid(), p_description: body.description, p_code: r.code, p_explanation: r.explanation, p_submit: false });
     await reloadGame();
     toast('Translated. Check the explanation, then test it.');
-  } finally { setUi('lab', { translating: false }); }
+  } catch (e) {
+    setUi('lab', { translateError: e.message });
+  } finally { clearInterval(tick); setUi('lab', { translating: false }); }
 }
 on('translate', async (_f, d) => doTranslate({ description: d.description }));
 on('fix-translation', async (form, d) => {

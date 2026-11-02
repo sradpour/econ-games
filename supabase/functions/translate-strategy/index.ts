@@ -36,21 +36,44 @@ Write exactly one function with this signature:
 Respond with JSON only: {"code": "...", "explanation": "...", "assumptions": ["..."]}
 "explanation" is a short numbered list in plain English (no code words) describing exactly what the function does, so the student can check it matches what they meant.`;
 
-async function callGemini(key: string, model: string, prompt: string) {
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: SYSTEM }] },
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
-    }),
-  });
-  const text = await res.text();
-  if (!res.ok) return { ok: false as const, status: res.status, text };
-  const data = JSON.parse(text);
-  const out = data?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? '').join('') ?? '';
-  return { ok: true as const, out };
+const PER_MODEL_TIMEOUT_MS = 25000;
+const TOTAL_BUDGET_MS = 70000;
+
+async function callGemini(key: string, model: string, prompt: string, noThinking: boolean) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), PER_MODEL_TIMEOUT_MS);
+  const generationConfig: Record<string, unknown> = { responseMimeType: 'application/json', temperature: 0.2 };
+  if (noThinking) generationConfig.thinkingConfig = { thinkingBudget: 0 }; // translation needs no "thinking"; much faster
+  const started = Date.now();
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: SYSTEM }] },
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig,
+      }),
+    });
+    const text = await res.text();
+    console.log('gemini', model, res.status, `${Date.now() - started}ms`);
+    if (!res.ok) {
+      let message = text.slice(0, 300);
+      try { message = JSON.parse(text)?.error?.message ?? message; } catch { /* not json */ }
+      return { ok: false as const, status: res.status, message };
+    }
+    const data = JSON.parse(text);
+    const out = data?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? '').join('') ?? '';
+    if (!out) return { ok: false as const, status: 502, message: `empty answer (${data?.candidates?.[0]?.finishReason ?? 'no candidates'})` };
+    return { ok: true as const, out };
+  } catch (e) {
+    const aborted = e instanceof DOMException && e.name === 'AbortError';
+    console.log('gemini', model, aborted ? 'timeout' : 'network error', `${Date.now() - started}ms`);
+    return { ok: false as const, status: aborted ? 504 : 502, message: aborted ? `no answer within ${PER_MODEL_TIMEOUT_MS / 1000} s` : String(e) };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 Deno.serve(async (req) => {
@@ -79,13 +102,19 @@ Deno.serve(async (req) => {
     prompt += `\n\nYour previous translation was:\n${body.previous_code}\n\nThe student says it is wrong because:\n"""\n${body.feedback}\n"""\nFix it.`;
   }
 
-  let lastError = '';
-  for (const model of models) {
-    const r = await callGemini(key, model, prompt);
+  const errors: string[] = [];
+  const startedAll = Date.now();
+  for (const model of [...new Set(models)]) {
+    if (Date.now() - startedAll > TOTAL_BUDGET_MS - PER_MODEL_TIMEOUT_MS) break;
+    let r = await callGemini(key, model, prompt, true);
+    // Some models reject the "no thinking" option; retry once without it.
+    if (!r.ok && r.status === 400 && /thinking/i.test(r.message)) r = await callGemini(key, model, prompt, false);
     if (!r.ok) {
-      lastError = `${model}: ${r.status}`;
-      if (r.status === 404 || r.status === 400) continue; // model name not available, try the next one
-      if (r.status === 429) return json({ error: 'The AI translator is busy (free quota). Wait a minute and try again.' }, 429);
+      errors.push(`${model}: ${r.message}`);
+      if (r.status === 401 || r.status === 403 || /API key/i.test(r.message)) {
+        return json({ error: `Gemini rejected the API key: ${r.message}. Ask your instructor to check the key on the Admin page.` }, 502);
+      }
+      if (r.status === 429) return json({ error: `The AI translator hit Google's free limit (${r.message}). Wait a minute and try again.` }, 429);
       continue;
     }
     try {
@@ -98,8 +127,9 @@ Deno.serve(async (req) => {
         model,
       });
     } catch {
-      lastError = `${model}: unreadable answer`;
+      errors.push(`${model}: answer was not a usable strategy`);
     }
   }
-  return json({ error: `The AI translator could not produce a strategy (${lastError}). Try rephrasing.` }, 502);
+  console.log('translate failed', errors);
+  return json({ error: `The AI translator could not produce a strategy. Details: ${errors.join(' | ') || 'no models tried'}` }, 502);
 });

@@ -94,7 +94,16 @@ export async function translateStrategy(body) {
     return data;
   }
   const sb = await client();
-  const { data, error } = await sb.functions.invoke('translate-strategy', { body });
+  const ctrl = new AbortController();
+  const TIMEOUT = 'No answer from the AI translator after 90 seconds. Google may be slow right now; try again in a minute.';
+  let timer;
+  const timeout = new Promise((_, reject) => { timer = setTimeout(() => { ctrl.abort(); reject(new Error(TIMEOUT)); }, 90000); });
+  let data, error;
+  try {
+    ({ data, error } = await Promise.race([sb.functions.invoke('translate-strategy', { body, signal: ctrl.signal }), timeout]));
+  } catch (e) {
+    throw new Error(e.message === TIMEOUT ? TIMEOUT : cleanError(e.message));
+  } finally { clearTimeout(timer); }
   if (error) {
     let msg = error.message;
     try { msg = (await error.context.json()).error || msg; } catch { /* ignore */ }
