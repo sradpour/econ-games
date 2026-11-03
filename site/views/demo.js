@@ -7,7 +7,7 @@ import { renderPlay } from './play.js';
 import { testTable, tournamentResults } from './lab.js';
 import { go } from '../app.js';
 
-const STRATEGY_GAMES = ['pd_live', 'pd_tournament', 'public_goods', 'ultimatum'];
+const STRATEGY_GAMES = ['pd_live', 'pd_tournament', 'public_goods', 'ultimatum', 'commons'];
 
 export function enterDemo(type) {
   if (!type) return;
@@ -15,8 +15,9 @@ export function enterDemo(type) {
   if (!store.game?.demo || store.game.session.game_type !== type) startDemo(type, demoOptions(type));
 }
 function demoOptions(type) {
-  if (!MARKETS.includes(type)) return {};
   const o = store.ui.demoOpts || {};
+  if (type === 'commons') return { variant: o.simpleCommons ? 'simple' : 'fishery' };
+  if (!MARKETS.includes(type)) return {};
   return { difficulty: o.hard ? 'hard' : 'normal', story: o.story || 'bakery', ...STORIES[o.story || 'bakery'] };
 }
 
@@ -37,6 +38,7 @@ export function renderDemo(route) {
       <div class="type-grid">${MARKETS.map(card)}</div>
     </section>
     <h2 class="group-h">Games of strategy</h2>
+    <div class="row wrap demo-options-inline"><label class="switch"><input type="checkbox" data-change="demo-simple-commons" ${o.simpleCommons ? 'checked' : ''}> <span>Tragedy of the commons: simple extract-or-wait version</span></label></div>
     <div class="type-grid">${STRATEGY_GAMES.map(card)}</div>
   </main>`;
 }
@@ -47,6 +49,7 @@ function card(t) {
 
 on('demo-hard', (el) => setUi('demoOpts', { hard: el.checked }));
 on('demo-story', (el) => setUi('demoOpts', { story: el.value }));
+on('demo-simple-commons', (el) => setUi('demoOpts', { simpleCommons: el.checked }));
 on('demo-restart', () => {
   const t = store.game?.session?.game_type;
   if (t) { startDemo(t, demoOptions(t)); window.scrollTo(0, 0); }

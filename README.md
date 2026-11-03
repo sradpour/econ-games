@@ -13,6 +13,7 @@ Free, self-hosted classroom economics games for introductory microeconomics, reb
 - Prisoner's dilemma strategy tournament: teams describe a strategy in plain English, an AI (Gemini, free tier) turns it into code, teams test it, then a round-robin tournament runs with match-by-match results.
 - Public goods: anonymous groups, partners or strangers matching, optional punishment phase.
 - Ultimatum and dictator games.
+- Tragedy of the commons: groups of three share a fishing lake that regrows from what is left (hidden number of seasons), with an optional anonymous group chat before each decision. A simple extract-or-wait version is a setting.
 
 Every game also has a **demo mode** (`#/demo`, no sign-in needed): play alone against simulated players, with no timer and nothing saved.
 

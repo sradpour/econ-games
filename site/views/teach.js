@@ -144,7 +144,7 @@ export function renderNewGame(classId) {
       <h2 class="group-h">Market structures</h2>
       <div class="type-grid">${MARKETS.map((t) => typeCard(t, classId))}</div>
       <h2 class="group-h">Games of strategy</h2>
-      <div class="type-grid">${['pd_live', 'pd_tournament', 'public_goods', 'ultimatum'].map((t) => typeCard(t, classId))}</div>
+      <div class="type-grid">${['pd_live', 'pd_tournament', 'public_goods', 'ultimatum', 'commons'].map((t) => typeCard(t, classId))}</div>
     </main>`;
   }
   const values = ng.values;

@@ -452,3 +452,34 @@ a.type-card { color: var(--ink); text-decoration: none; background: var(--surfac
 .typical span { font-size: .82rem; color: var(--ink-2); }
 .typical strong { font: 800 1.35rem var(--font-display); color: var(--demand); }
 .typical p { grid-column: 1 / -1; margin: 0; }
+
+/* Tragedy of the commons */
+.lake { margin: 0 0 14px; }
+.lake-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px 14px; flex-wrap: wrap; margin-bottom: 8px; }
+.lake-head .big-num { font-size: 1.6rem; }
+.lake-svg { display: block; max-width: 340px; height: auto; }
+.lake-svg .water { fill: var(--demand-soft); }
+.lake-svg .fish { fill: var(--demand); transition: fill .4s, opacity .4s; }
+.lake-svg .fish.gone { fill: none; stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 2; }
+.pool { margin: 0 0 12px; }
+.pool-amt { display: flex; flex-direction: column; margin-bottom: 6px; }
+.pool-amt .big-num { font-size: 2rem; }
+.pool ul { margin: 0 0 6px; padding-left: 1.2em; }
+.whatif { background: var(--paper); border: 1px dashed var(--line); border-radius: var(--r-sm); padding: 8px 10px; }
+.chat { border: 1px solid var(--line); border-radius: var(--r-lg); padding: 12px; margin: 14px 0; background: var(--surface); }
+.chat.closed { background: transparent; }
+.chat-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.chat-head h3 { margin: 0; }
+.chat-log { list-style: none; margin: 10px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; overscroll-behavior: contain; }
+.chat.closed .chat-log { max-height: 160px; }
+.msg { align-self: flex-start; max-width: 85%; background: var(--paper); border: 1px solid var(--line); border-radius: 12px 12px 12px 4px; padding: 6px 10px; overflow-wrap: anywhere; }
+.msg.mine { align-self: flex-end; background: var(--demand-soft); border-color: transparent; border-radius: 12px 12px 4px 12px; }
+.msg .who { display: block; font-size: .75rem; font-weight: 700; color: var(--muted); }
+.msg.mine .who { color: var(--demand); }
+.chat-div { align-self: center; font-size: .75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; padding-top: 4px; }
+.chat-empty { font-size: .9rem; }
+.chat-form { display: flex; gap: 8px; }
+.chat-form input { flex: 1; min-width: 0; }
+.ichat-list { list-style: none; margin: 0; padding: 0; max-height: 360px; overflow-y: auto; }
+.ichat-list li { display: grid; gap: 2px; padding: 6px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.demo-options-inline { margin: -4px 0 12px; }

@@ -4,12 +4,14 @@ import { variableCost, marginalCost, laborHours, marginalProduct, normalizeConfi
 import { lineChart, sample, barChart } from '../lib/chart.js';
 import { serverNow } from '../app.js';
 import { submit } from './play.js';
+import { commonsStageLabel, commonsPanel, commonsLastResult, commonsPublic, commonsHistory } from './commons.js';
 
 const MARKET = ['competitive', 'monopolistic', 'oligopoly', 'monopoly'];
 
 export function roundsTotal(type, c) {
   if (MARKET.includes(type) || type === 'ultimatum') return c.rounds;
   if (type === 'public_goods') return c.rounds_no_punish + c.rounds_punish;
+  if (type === 'commons') return c.variant === 'simple' ? c.rounds : null;
   return null;
 }
 
@@ -24,12 +26,13 @@ export function stageLabel(s, g) {
       if (a.role === 'bye') return 'You sit out this round';
       if (s.stage === 'respond') return a.role === 'responder' ? 'Accept or reject the offer' : 'Waiting for your partner';
       return a.role === 'proposer' ? 'Make an offer' : 'Waiting for the proposer';
+    case 'commons': return commonsStageLabel(s, g);
     default: return '';
   }
 }
 
 // Who may submit right now (captain rule, with backup in the last 30 seconds)
-function canSubmit(g) {
+export function canSubmit(g) {
   if (!g.me.required || g.session.status !== 'running') return false;
   if (g.session.team_mode !== 'teams' || g.me.is_captain) return true;
   const end = g.session.stage_ends_at ? new Date(g.session.stage_ends_at).getTime() : null;
@@ -39,7 +42,7 @@ function captainNote(g) {
   if (g.session.team_mode !== 'teams' || g.me.is_captain) return '';
   return html`<p class="note">${g.me.captain_name || 'Your captain'} submits for your team this round. Talk it over together. If nothing is in by the last 30 seconds, anyone on the team can submit.</p>`;
 }
-function submittedNote(g) {
+export function submittedNote(g) {
   if (!g.me.decision) return '';
   return html`<p class="saved">Submitted${g.me.decision_by ? ` by ${g.me.decision_by}` : ''}. You can change it until time runs out.</p>`;
 }
@@ -54,6 +57,7 @@ export function decisionPanel(g, c) {
     case 'pd_live': return pdForm(g, c);
     case 'public_goods': return s.stage === 'punish' ? punishForm(g, c) : contributeForm(g, c);
     case 'ultimatum': return ugForm(g, c);
+    case 'commons': return commonsPanel(g, c);
     default: return '';
   }
 }
@@ -451,6 +455,7 @@ export function lastResult(g, c) {
   const r = lastRes(g);
   if (!r) return '';
   const t = g.session.game_type;
+  if (t === 'commons') return commonsLastResult(g, c);
   let body = '';
   if (MARKET.includes(t)) {
     body = r.participated ? html`<dl class="pv result">
@@ -504,6 +509,7 @@ export function publicBlock(g, c) {
   const pubs = g.public;
   if (!pubs.length) return '';
   const last = pubs[pubs.length - 1];
+  if (t === 'commons') return commonsPublic(g, c, leaderboardTable);
   let chart = '';
   if (MARKET.includes(t)) {
     const key = t === 'monopoly' ? 'average_price' : 'market_price';
@@ -537,6 +543,7 @@ export function publicBlock(g, c) {
 export function historyBlock(g, c) {
   const t = g.session.game_type;
   if (!g.results.length) return '';
+  if (t === 'commons') return commonsHistory(g, c);
   const rows = g.results.slice().reverse();
   let head, row;
   if (MARKET.includes(t)) {
@@ -565,7 +572,7 @@ export function finalBlock(g, c) {
   const mine = lastRes(g);
   const myName = g.team?.name;
   const myRow = f?.leaderboard?.find((r) => r.name === myName);
-  const isMoney = MARKET.includes(t);
+  const isMoney = MARKET.includes(t) || t === 'commons';
   return html`
     <div class="final-score">
       ${myRow ? html`<div class="place"><span class="place-n">${myRow.rank}</span><span class="place-of">of ${f.leaderboard.length}</span></div>` : ''}

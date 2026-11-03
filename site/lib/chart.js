@@ -13,7 +13,7 @@ const fmt = (v) => (Math.abs(v) >= 1000 ? `${Math.round(v / 100) / 10}k` : Numbe
  * series: [{ name, points: [[x, y], ...], color: 'demand'|'supply'|'ink'|'muted'|'mark', dashed?, dots? }]
  * refs:   [{ y, label }] horizontal reference lines
  */
-export function lineChart({ series, refs = [], xLabel = '', yLabel = '', height = 220, xInteger = false, title = '' }) {
+export function lineChart({ series, refs = [], xLabel = '', yLabel = '', height = 220, xInteger = false, title = '', yMax = null }) {
   const W = 560, H = height, L = 46, R = 14, T = yLabel ? 28 : 14, B = 34;
   const pts = series.flatMap((s) => s.points).filter((p) => p[1] !== null && p[1] !== undefined && Number.isFinite(p[1]));
   if (!pts.length) return raw(`<div class="chart-empty">No data yet</div>`);
@@ -21,7 +21,7 @@ export function lineChart({ series, refs = [], xLabel = '', yLabel = '', height 
   let x0 = Math.min(...xs), x1 = Math.max(...xs);
   if (x0 === x1) { x0 -= 1; x1 += 1; }
   const ys = [...pts.map((p) => p[1]), ...refs.map((r) => r.y)];
-  let y0 = Math.min(0, ...ys), y1 = nice(Math.max(...ys) * 1.08 || 1);
+  let y0 = Math.min(0, ...ys), y1 = yMax && Math.max(...ys) <= yMax ? yMax : nice(Math.max(...ys) * 1.08 || 1);
   if (y0 < 0) y0 = -nice(-y0);
   const sx = (x) => L + ((x - x0) / (x1 - x0)) * (W - L - R);
   const sy = (y) => T + (1 - (y - y0) / (y1 - y0)) * (H - T - B);

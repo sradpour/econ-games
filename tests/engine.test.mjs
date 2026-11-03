@@ -223,3 +223,92 @@ test('changing wage or productivity changes marginal cost', () => {
   assert.equal(c.mc_intercept, 3);
   assert.equal(c.mc_slope, 0.2);
 });
+
+test('commons fishery: sustainable catch keeps the lake full; greed empties it', () => {
+  const b = benchmarks('commons', {}, 9);
+  assert.equal(b.capacity, 60);
+  assert.equal(b.sustainable_group_catch, 30);
+  // Everyone takes 10: lake refills every season, every season pays 10.
+  const fair = run('commons', { chat: 'off', matches: 1, min_seasons: 5, max_seasons: 5 }, teams(9), () => ({ catch: 10 }));
+  assert.equal(fair.pubs.length, 5);
+  assert.ok(fair.allResults.every((r) => r.payload.catch === 10 && r.payload.stock_next === 60));
+  assert.equal(fair.state.cum.t1, 50);
+  // Everyone takes 20: all lakes empty after one season and the game ends early.
+  const greedy = run('commons', { chat: 'off', matches: 1, min_seasons: 5, max_seasons: 5 }, teams(9), () => ({ catch: 20 }));
+  assert.equal(greedy.pubs.length, 1);
+  assert.equal(greedy.pubs[0].payload.lakes_empty, 3);
+  assert.equal(greedy.pubs[0].payload.match_over, true);
+  assert.equal(greedy.state.cum.t1, 20);
+});
+
+test('commons fishery: over-asking is rationed, overfishing shrinks the lake, groups of three', () => {
+  const rng = makeRng(3);
+  const ts = teams(10);
+  const s = startGame('commons', { chat: 'off', matches: 1, min_seasons: 3, max_seasons: 3 }, ts, rng);
+  assert.equal(s.open.stage, 'decide');
+  assert.deepEqual(s.state.groups.map((g) => g.length).sort(), [3, 3, 4]);
+  const info = s.open.assignments[0].info;
+  assert.equal(info.capacity, info.group_size * 20);
+  assert.ok(['A', 'B', 'C', 'D'].includes(info.label));
+  // One person takes 20, the rest 10, in every group
+  const decisions = {};
+  for (const g of s.state.groups) g.forEach((id, i) => { decisions[id] = { catch: i === 0 ? 20 : 10 }; });
+  const r = resolveStage({ gameType: 'commons', config: s.config, state: s.state, round_no: 1, stage: 'decide', teams: ts, decisions }, rng);
+  const three = r.round_public[0].payload.lakes.find((l) => l.capacity === 60);
+  assert.deepEqual([three.start, three.caught, three.next], [60, 40, 40]);
+  const me = r.results.find((x) => x.payload.capacity === 60 && x.payload.catch === 20);
+  assert.equal(me.payload.others.length, 2);
+  // Lake of 10 fish, three people ask 20 each: they share all 10
+  const st = structuredClone(r.state);
+  st.lakes.forEach((l) => { l.stock = 10; });
+  const d2 = Object.fromEntries(ts.map((t) => [t.id, { catch: 20 }]));
+  const r2 = resolveStage({ gameType: 'commons', config: s.config, state: st, round_no: 2, stage: 'decide', teams: ts, decisions: d2 }, rng);
+  for (const l of r2.round_public[0].payload.lakes) assert.equal(l.caught, 10);
+  assert.ok(r2.finished, 'all lakes empty ends the last fishing game');
+});
+
+test('commons: chat stage comes first, then the decision; "later" turns chat on in the second game', () => {
+  const rng = makeRng(5);
+  const ts = teams(6);
+  const s = startGame('commons', { chat: 'later', matches: 2, min_seasons: 1, max_seasons: 1 }, ts, rng);
+  assert.equal(s.open.stage, 'decide');
+  assert.equal(s.open.assignments[0].info.chat, false);
+  const r = resolveStage({ gameType: 'commons', config: s.config, state: s.state, round_no: 1, stage: 'decide', teams: ts, decisions: {} }, rng);
+  assert.equal(r.open.stage, 'chat');
+  assert.equal(r.open.assignments[0].info.chat, true);
+  assert.match(r.open.assignments[0].info.group_key, /^m2-g\d$/);
+  const r2 = resolveStage({ gameType: 'commons', config: s.config, state: r.state, round_no: 2, stage: 'chat', teams: ts, decisions: {} }, rng);
+  assert.equal(r2.open.stage, 'decide');
+  assert.equal(r2.open.round_no, 2);
+  assert.equal(r2.results.length, 0);
+});
+
+test('commons fishery strangers: new groups each season, lakes keep their stock', () => {
+  const rng = makeRng(8);
+  const ts = teams(9);
+  const s = startGame('commons', { chat: 'off', matching: 'strangers', matches: 1, min_seasons: 4, max_seasons: 4 }, ts, rng);
+  const r = resolveStage({ gameType: 'commons', config: s.config, state: s.state, round_no: 1, stage: 'decide', teams: ts,
+    decisions: Object.fromEntries(ts.map((t) => [t.id, { catch: 15 }])) }, rng);
+  assert.ok(r.open.assignments.every((a) => a.info.stock === 30));
+  assert.match(r.open.assignments[0].info.group_key, /^r2-g\d$/);
+  assert.notDeepEqual(r.state.groups, s.state.groups);
+});
+
+test('commons simple: extract or wait payoffs', () => {
+  const rng = makeRng(2);
+  const ts = teams(3);
+  const s = startGame('commons', { variant: 'simple', chat: 'off', rounds: 3 }, ts, rng);
+  const step = (state, round_no, choices) => resolveStage({ gameType: 'commons', config: s.config, state, round_no, stage: 'decide', teams: ts,
+    decisions: Object.fromEntries(ts.map((t, i) => [t.id, { choice: choices[i] }])) }, rng);
+  const earn = (r) => ts.map((t) => r.results.find((x) => x.team_id === t.id).earnings);
+  const a = step(s.state, 1, ['wait', 'wait', 'wait']);
+  assert.deepEqual(earn(a), [20, 20, 20]);
+  const b = step(a.state, 2, ['extract', 'wait', 'wait']);
+  assert.deepEqual(earn(b), [30, 0, 0]);
+  const c = step(b.state, 3, ['extract', 'extract', 'wait']);
+  assert.deepEqual(earn(c), [15, 15, 0]);
+  assert.ok(c.finished);
+  assert.equal(c.state.cum.t1, 65);
+  const bm = benchmarks('commons', { variant: 'simple' }, 3);
+  assert.deepEqual([bm.all_wait_each, bm.all_extract_each, bm.lone_extractor], [20, 10, 30]);
+});

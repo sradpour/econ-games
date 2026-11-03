@@ -13,13 +13,33 @@ import { tournamentResults } from './lab.js';
 
 let stop = null, current = null, loading = false, again = false;
 
+let chatTimer = null;
 export function enterControl(id) {
   current = id;
   setState({ ctrl: null });
+  store.ui.ichat = null;
   load();
   stop = watchSession(id, load);
+  chatTimer = setInterval(() => {
+    const st = store.ctrl;
+    if (st?.session?.game_type === 'commons' && st.session.status === 'running' && document.visibilityState === 'visible') loadChat();
+  }, 3000);
 }
-export function leaveControl() { stop?.(); stop = null; current = null; }
+export function leaveControl() { stop?.(); stop = null; current = null; clearInterval(chatTimer); chatTimer = null; }
+
+let chatBusy = false;
+async function loadChat() {
+  if (!current || chatBusy) return;
+  chatBusy = true;
+  try {
+    const id = current;
+    const cur = store.ui.ichat?.session === id ? store.ui.ichat : { session: id, items: [], last: 0 };
+    const rows = await rpc('instructor_messages', { p_session: id, p_after: cur.last });
+    if (id !== current || (!rows.length && store.ui.ichat)) return;
+    const items = [...cur.items, ...rows];
+    setUi('ichat', () => ({ session: id, items, last: items.length ? items[items.length - 1].id : 0 }));
+  } catch (e) { /* try again next time */ } finally { chatBusy = false; }
+}
 
 async function load() {
   if (!current) return;
@@ -31,6 +51,7 @@ async function load() {
     if (id !== current) return;
     syncClock(st.server_now);
     setState({ ctrl: st });
+    if (st.session.game_type === 'commons' && !store.ui.ichat) loadChat();
   } catch (e) { setState({ ctrl: { error: e.message } }); }
   finally { loading = false; if (again) { again = false; load(); } }
 }
@@ -73,19 +94,21 @@ function controls(st, c) {
       <div class="row"><a class="button" href="#/teach/game/${s.id}/projector">Projector view</a><button class="primary big" data-action="ctl" data-op="start">Start game</button></div></div>` : ''}
     ${['running', 'paused'].includes(s.status) && !isT ? html`
       <div class="ctrl-status"><div class="round-badge"><span class="rb-n">${s.round_no}</span><span class="rb-of">${total ? `of ${total}` : 'round'}</span></div>
-        <div class="grow">${timerBar(s, s.stage === 'punish' ? 'Punishment stage' : s.stage === 'respond' ? 'Responses' : 'Round closes in')}
+        <div class="grow">${timerBar(s, s.stage === 'punish' ? 'Punishment stage' : s.stage === 'respond' ? 'Responses' : s.stage === 'chat' ? 'Chat closes in' : 'Round closes in')}
+        ${s.game_type === 'commons' ? html`<p class="small muted">${commonsWhere(st, c)}</p>` : ''}
         <p class="big-line">${prog} of ${st.required.length} submitted</p></div></div>
       <div class="row wrap">
         ${s.status === 'running' ? html`<button data-action="ctl" data-op="pause">Pause</button>` : html`<button class="primary" data-action="ctl" data-op="resume">Resume</button>`}
         <button data-action="ctl" data-op="extend" data-seconds="30">+30 seconds</button>
         <button data-action="ctl" data-op="extend" data-seconds="60">+1 minute</button>
-        <button class="primary" data-action="ctl" data-op="end_stage">End ${s.stage === 'punish' || s.stage === 'respond' ? 'stage' : 'round'} now</button>
+        <button class="primary" data-action="ctl" data-op="end_stage">End ${s.stage === 'chat' ? 'chat' : s.stage === 'punish' || s.stage === 'respond' ? 'stage' : 'round'} now</button>
         <a class="button" href="#/teach/game/${s.id}/projector">Projector view</a>
         <button class="danger" data-action="ctl" data-op="finish">End game</button>
       </div>` : ''}
     ${!isT && s.status !== 'lobby' ? html`<div class="row wrap exports">
       <button data-action="export" data-kind="summary">Download grades (one row per student)</button>
-      <button data-action="export" data-kind="detail">Download all rounds</button></div>` : ''}
+      <button data-action="export" data-kind="detail">Download all rounds</button>
+      ${s.game_type === 'commons' && c.chat !== 'off' ? html`<button data-action="export-chat">Download chat log</button>` : ''}</div>` : ''}
   </section>`;
 }
 
@@ -167,6 +190,8 @@ function livePanels(st, c, teamOf) {
     chart = lineChart({ title: 'Average contribution', xInteger: true, xLabel: 'Round', yLabel: 'tokens',
       refs: c.rounds_punish > 0 && c.rounds_no_punish > 0 ? [] : [],
       series: [{ name: 'Average', color: 'demand', dots: true, points: pubs.map((p) => [p.round_no, p.average_contribution]) }] });
+  } else if (t === 'commons') {
+    chart = commonsChart(st, c);
   } else if (t === 'ultimatum') {
     chart = lineChart({ title: 'Offers', xInteger: true, xLabel: 'Round', yLabel: '$', series: [
       { name: 'Average offer', color: 'demand', dots: true, points: pubs.map((p) => [p.round_no, p.average_offer]) },
@@ -178,14 +203,17 @@ function livePanels(st, c, teamOf) {
       <section class="card">${raw(chart)}${b ? benchmarkNote(b) : ''}${t === 'public_goods' && c.rounds_punish ? html`<p class="small muted">Punishment starts in round ${c.rounds_no_punish + 1}.</p>` : ''}</section>
       <section class="card"><h2>Standings</h2>
         ${board.length ? html`<table class="board"><thead><tr><th>#</th><th>${s.team_mode === 'teams' ? 'Team' : 'Player'}</th><th>Total</th></tr></thead><tbody>
-          ${board.slice(0, 50).map((r, i) => html`<tr><td>${i + 1}</td><td>${r.name}</td><td>${MARKETS.includes(t) ? money(r.total) : num(r.total, 1)}</td></tr>`)}</tbody></table>` : html`<p class="muted">After the first round.</p>`}
+          ${board.slice(0, 50).map((r, i) => html`<tr><td>${i + 1}</td><td>${r.name}</td><td>${MARKETS.includes(t) || t === 'commons' ? money(r.total, t === 'commons' ? 2 : 0) : num(r.total, 1)}</td></tr>`)}</tbody></table>` : html`<p class="muted">After the first round.</p>`}
       </section>
     </div>
     ${['running', 'paused'].includes(s.status) ? currentDecisions(st, c, teamOf) : ''}
+    ${t === 'commons' && c.chat !== 'off' ? chatMonitor(st, c) : ''}
     ${lastResults.length ? lastRoundTable(st, c, teamOf, lastResults, lastRound) : ''}`;
 }
 
 function benchmarkNote(b) {
+  if (b.kind === 'commons' && b.variant === 'simple') return html`<p class="small muted">In a group of ${b.group_size}: everyone waits = ${money(b.all_wait_each)} each; everyone extracts = ${money(b.all_extract_each)} each; a lone extractor gets ${money(b.lone_extractor)}. ${b.note}</p>`;
+  if (b.kind === 'commons') return html`<p class="small muted">Lake of ${b.capacity} (group of ${b.group_size}): the group can catch at most ${b.sustainable_group_catch} per season (${num(b.sustainable_per_person, 1)} each) and keep the lake full. If everyone takes the maximum, the group wants ${b.greedy_group_catch}. ${b.note}</p>`;
   if (b.kind === 'competitive') return html`<p class="small muted">Competitive equilibrium: price ${money(b.price, 2)}, ${num(b.quantity_per_firm)} units per firm, profit ${money(b.profit_per_firm)}.</p>`;
   if (b.kind === 'monopoly') return html`<p class="small muted">Profit-maximising monopoly: price ${money(b.price, 2)}, quantity ${num(b.quantity)}, profit ${money(b.profit)} (competitive price would be ${money(b.competitive_price, 2)}).</p>`;
   return html`<p class="small muted">With ${b.firms} firms: Nash price ${money(b.nash_price, 2)} (${num(b.nash_quantity)} units, profit ${money(b.nash_profit)}); joint-profit price ${money(b.joint_price, 2)} (profit ${money(b.joint_profit)}). ${b.note}</p>`;
@@ -199,13 +227,16 @@ function currentDecisions(st, c, teamOf) {
     if (!p) return '';
     if (MARKETS.includes(s.game_type)) return p.participate === false ? 'sitting out' : [p.price !== undefined ? money(p.price, 2) : '', p.quantity !== undefined ? `× ${p.quantity}` : '', p.branding ? `brand ${money(p.branding)}` : ''].join(' ');
     if (p.move) return p.move === 'C' ? 'Cooperate' : 'Defect';
+    if (p.ready) return 'ready';
+    if (p.catch !== undefined) return `${p.catch} fish`;
+    if (p.choice) return p.choice;
     if (p.contribution !== undefined) return `${p.contribution} tokens`;
     if (p.points) return Object.entries(p.points).map(([k, v]) => `${k}:${v}`).join(' ') || 'no points';
     if (p.offer !== undefined) return `offers $${p.offer}`;
     if (p.accept !== undefined) return p.accept ? 'accepts' : 'rejects';
     return JSON.stringify(p);
   };
-  return html`<details class="card" open><summary>This ${s.stage === 'decide' || s.stage === 'move' ? 'round' : 'stage'}: who has submitted</summary>
+  return html`<details class="card" open><summary>This ${s.stage === 'decide' || s.stage === 'move' ? 'round' : 'stage'}: ${s.stage === 'chat' ? 'who is ready' : 'who has submitted'}</summary>
     <ul class="sub-grid">${req.map((id) => html`<li class="${dec[id] ? 'in' : 'waiting'}" data-key="${id}"><span>${teamOf[id]?.name || '?'}</span>
       <span class="small">${dec[id] ? describe(dec[id].payload) : 'waiting'}</span></li>`)}</ul></details>`;
 }
@@ -219,6 +250,13 @@ function lastRoundTable(st, c, teamOf, rows, roundNo) {
   } else if (t === 'pd_live') {
     head = html`<tr><th>Player</th><th>Move</th><th>Partner's</th><th>Points</th><th>Total</th></tr>`;
     row = (r) => { const p = r.payload; return html`<tr><td>${teamOf[r.team_id]?.name}</td><td>${p.bye ? 'bye' : p.you}${p.auto ? '*' : ''}</td><td>${p.them || ''}</td><td>${p.points}</td><td>${p.cumulative}</td></tr>`; };
+  } else if (t === 'commons' && c.variant === 'simple') {
+    head = html`<tr><th>Player</th><th>Group</th><th>Choice</th><th>Extractors</th><th>Earned</th><th>Total</th></tr>`;
+    row = (r) => { const p = r.payload; return html`<tr><td>${teamOf[r.team_id]?.name}</td><td>${p.label}</td><td>${p.choice}${p.auto ? '*' : ''}</td><td>${p.extractors} of ${p.group_size}</td><td>${money(p.earnings, 2)}</td><td>${money(p.cumulative, 2)}</td></tr>`; };
+  } else if (t === 'commons') {
+    head = html`<tr><th>Player</th><th>Lake</th><th>Fish at start</th><th>Caught</th><th>Group caught</th><th>Next season</th><th>Total</th></tr>`;
+    rows = rows.slice().sort((a, b) => (a.payload.lake - b.payload.lake) || a.payload.label.localeCompare(b.payload.label));
+    row = (r) => { const p = r.payload; return html`<tr><td>${teamOf[r.team_id]?.name}</td><td>${p.lake} (${p.label})</td><td>${p.stock_start}</td><td>${p.catch}${p.auto ? '*' : ''}${p.requested > p.catch ? html` <span class="small muted">asked ${p.requested}</span>` : ''}</td><td>${p.group_catch}</td><td class="${p.stock_next === 0 ? 'neg' : ''}">${p.stock_next}</td><td>${money(p.cumulative, 2)}</td></tr>`; };
   } else if (t === 'public_goods') {
     head = html`<tr><th>Player</th><th>Put in</th><th>Pot</th><th>Gave</th><th>Received</th><th>Earned</th></tr>`;
     row = (r) => { const p = r.payload; return html`<tr><td>${teamOf[r.team_id]?.name}</td><td>${p.contribution}${p.auto ? '*' : ''}</td><td>${p.group_total}</td><td>${p.points_given}</td><td>${p.points_received}</td><td>${num(p.earnings, 1)}</td></tr>`; };
@@ -347,6 +385,7 @@ function projector(st, c) {
   if (MARKETS.includes(t) && pubs.length) chart = lineChart({ title: 'Market price', xInteger: true, height: 260, series: [{ color: 'demand', dots: true, points: pubs.map((p) => [p.round_no, p[t === 'monopoly' ? 'average_price' : 'market_price']]) }] });
   if (t === 'pd_live' && pubs.length) chart = lineChart({ title: 'Cooperation rate (%)', xInteger: true, height: 260, series: [{ color: 'demand', dots: true, points: pubs.map((p) => [p.round_no, (p.cooperation_rate ?? 0) * 100]) }] });
   if (t === 'public_goods' && pubs.length) chart = lineChart({ title: 'Average contribution', xInteger: true, height: 260, series: [{ color: 'demand', dots: true, points: pubs.map((p) => [p.round_no, p.average_contribution]) }] });
+  if (t === 'commons' && pubs.length) chart = commonsChart(st, c, 260);
   if (t === 'ultimatum' && pubs.length) chart = lineChart({ title: 'Average offer ($)', xInteger: true, height: 260, series: [{ color: 'demand', dots: true, points: pubs.map((p) => [p.round_no, p.average_offer]) }] });
   const prog = st.required?.length ? st.decisions.filter((d) => st.required.includes(d.team_id)).length : 0;
   return html`<main class="projector">
@@ -359,8 +398,59 @@ function projector(st, c) {
       <div class="proj-round">Round <strong>${s.round_no}</strong>${total ? ` of ${total}` : ''}</div>
       ${timerBar(s)}<p class="proj-count">${prog} of ${st.required.length} submitted</p></div>` : ''}
     <div class="proj-grid">${chart ? html`<div class="card">${raw(chart)}</div>` : ''}
-      ${showBoard && board.length ? html`<div class="card"><h2>Leaderboard</h2><ol class="proj-board">${board.map((r) => html`<li><span>${r.name}</span><strong>${MARKETS.includes(t) ? money(r.v) : num(r.v, 1)}</strong></li>`)}</ol></div>` : ''}
+      ${showBoard && board.length ? html`<div class="card"><h2>Leaderboard</h2><ol class="proj-board">${board.map((r) => html`<li><span>${r.name}</span><strong>${MARKETS.includes(t) || t === 'commons' ? money(r.v) : num(r.v, 1)}</strong></li>`)}</ol></div>` : ''}
       ${t === 'pd_tournament' && s.status === 'finished' ? html`<div class="card wide">${tournamentResults({ outputs: st.outputs }, { instructor: true })}</div>` : ''}
     </div>
   </main>`;
 }
+
+// ---------------------------------------------------------------------------
+// Tragedy of the commons
+
+/** "Fishing game 1 of 2, season 3" for the open stage, worked out from the last resolved season. */
+function commonsWhere(st, c) {
+  if (c.variant === 'simple') return `Round ${st.session.round_no} of ${c.rounds}${st.session.stage === 'chat' ? ': groups are chatting' : ''}`;
+  const last = st.public[st.public.length - 1];
+  const match = !last ? 1 : last.match_over ? last.match + 1 : last.match;
+  const season = !last || last.match_over ? 1 : last.season + 1;
+  return `Fishing game ${match} of ${c.matches}, season ${season}${st.session.stage === 'chat' ? ': groups are chatting' : ''}. Each fishing game ends after a hidden ${c.min_seasons}–${c.max_seasons} seasons.`;
+}
+
+function commonsChart(st, c, height = 220) {
+  const pubs = st.public;
+  if (c.variant === 'simple') {
+    return lineChart({ title: 'Share extracting', xInteger: true, xLabel: 'Round', yLabel: '%', yMax: 100, height,
+      series: [{ name: 'Extracting', color: 'supply', dots: true, points: pubs.map((p) => [p.round_no, p.extract_rate === null ? null : p.extract_rate * 100]) },
+        { name: 'Groups where all waited', color: 'demand', dashed: true, dots: true, points: pubs.map((p) => [p.round_no, p.groups ? (100 * p.groups_all_waited) / p.groups : null]) }] });
+  }
+  const nLakes = Math.max(0, ...pubs.map((p) => p.lakes?.length || 0));
+  const lakeLines = Array.from({ length: Math.min(nLakes, 20) }, (_, i) => ({ color: 'muted',
+    points: pubs.map((p) => { const l = p.lakes[i]; return [p.round_no, l ? (100 * l.next) / l.capacity : null]; }) }));
+  return lineChart({ title: 'Fish left after regrowth (% of a full lake)', xInteger: true, xLabel: 'Round', yLabel: '% full', yMax: 100, height,
+    series: [...lakeLines, { name: 'Average lake', color: 'demand', dots: true, points: pubs.map((p) => [p.round_no, p.average_level * 100]) }] });
+}
+
+function groupName(key, c) {
+  const m = /g(\d+)$/.exec(key || '');
+  return m ? `${c.variant === 'simple' ? 'Group' : 'Lake'} ${Number(m[1]) + 1}` : key;
+}
+
+function chatMonitor(st, c) {
+  const items = (store.ui.ichat?.session === st.session.id ? store.ui.ichat.items : []).slice(-150).reverse();
+  const who = c.variant === 'simple' ? 'Player' : 'Fisher';
+  return html`<details class="card ichat" ${st.session.stage === 'chat' ? 'open' : ''}><summary>Group chat (${plural(store.ui.ichat?.items?.length || 0, 'message')})</summary>
+    <p class="small muted">Students see each other only as ${who} A, B, C. You see names. Newest first; updates every few seconds.</p>
+    ${items.length ? html`<ol class="ichat-list">${items.map((m) => html`<li data-key="${m.id}"><span class="small muted">Round ${m.round_no} · ${groupName(m.group_key, c)} · ${who} ${m.label} (${m.name || '?'})</span><span>${m.body}</span></li>`)}</ol>`
+      : html`<p class="muted">No messages yet.</p>`}
+  </details>`;
+}
+
+on('export-chat', async () => {
+  const st = store.ctrl;
+  const c = normalizeConfig(st.session.game_type, st.session.config);
+  const rows = await rpc('instructor_messages', { p_session: current, p_after: 0 });
+  downloadCsv(`${st.session.class_name} - ${st.session.title} - chat.csv`, rows.map((m) => ({
+    round: m.round_no, group: groupName(m.group_key, c), label: m.label, student_name: m.name, student_id: m.student_id, email: m.email,
+    message: m.body, time: new Date(m.at).toLocaleString(),
+  })));
+});

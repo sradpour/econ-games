@@ -24,7 +24,9 @@ before(async () => {
   execFileSync('psql', [...PSQL, '-c', 'drop database if exists econ_it', '-c', 'create database econ_it']);
   execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', 'tests/stubs.sql']);
   execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', 'supabase/migrations/0001_schema.sql']);
-  execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', 'supabase/migrations/0003_admin_management.sql']);
+  for (const m of ['0003_admin_management', '0004_tournament_progress', '0005_strategy_names', '0006_commons']) {
+    execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', `supabase/migrations/${m}.sql`]);
+  }
   await sql(`insert into private.app_config(key, value) values ('engine_url', 'local-queue') on conflict (key) do update set value = excluded.value`);
 });
 
@@ -233,6 +235,60 @@ test('ultimatum game: offers, responses, byes', async () => {
   const props = final.results.filter((r) => r.payload.role === 'proposer');
   assert.ok(props.every((r) => r.payload.points === 7));
   assert.ok(final.results.some((r) => r.payload.role === 'bye'));
+});
+
+test('tragedy of the commons: anonymous group chat, then catches; lakes shrink when overfished', async () => {
+  const T = as('siavash.radpour@stockton.edu');
+  const s = await T('create_session', { p_class: classId, p_game_type: 'commons', p_title: 'Fishing',
+    p_config: { matches: 1, min_seasons: 2, max_seasons: 2, chat: 'on' } });
+  const ps = students.slice(0, 9);
+  for (const e of ps) { await as(e)('join_session', { p_session: s.id }); await as(e)('pass_check', { p_session: s.id }); }
+  await T('instructor_control', { p_session: s.id, p_action: 'start' });
+  await drain();
+  let g = await as(ps[0])('get_state', { p_session: s.id });
+  assert.equal(g.session.stage, 'chat');
+  assert.equal(g.assignment.group_size, 3);
+  assert.equal(g.assignment.stock, 60);
+  // Everyone says hello in their group
+  for (const e of ps) await as(e)('send_message', { p_session: s.id, p_body: `  hello   from ${e.split('@')[0]} ` });
+  await fails(as(ps[0])('send_message', { p_session: s.id, p_body: 'x'.repeat(201) }), /at most 200/);
+  await fails(as(ps[0])('send_message', { p_session: s.id, p_body: '   ' }), /Type a message/);
+  const m = await as(ps[0])('get_messages', { p_session: s.id });
+  assert.equal(m.messages.length, 3, 'only my group of three');
+  assert.ok(m.messages.every((x) => /^[ABC]$/.test(x.label) && x.name === undefined && x.email === undefined));
+  assert.equal(m.messages.filter((x) => x.mine).length, 1);
+  assert.equal(m.messages.find((x) => x.mine).body, 'hello from student1');
+  const after = await as(ps[0])('get_messages', { p_session: s.id, p_after: m.messages[2].id });
+  assert.equal(after.messages.length, 0);
+  const all = await T('instructor_messages', { p_session: s.id });
+  assert.equal(all.length, 9);
+  assert.ok(all.every((x) => x.name && x.student_id));
+  await fails(as(ps[0])('instructor_messages', { p_session: s.id }), /Not your game/);
+  // Everyone is ready: the decision stage opens and chat closes
+  for (const e of ps) await as(e)('submit_decision', { p_session: s.id, p_payload: { ready: true } });
+  await drain();
+  g = await as(ps[0])('get_state', { p_session: s.id });
+  assert.equal(g.session.stage, 'decide');
+  await fails(as(ps[0])('send_message', { p_session: s.id, p_body: 'too late' }), /chat is closed/);
+  assert.equal((await as(ps[0])('get_messages', { p_session: s.id })).messages.length, 3, 'transcript still visible');
+  for (const e of ps) await as(e)('submit_decision', { p_session: s.id, p_payload: { catch: 15 } });
+  await drain();
+  g = await as(ps[0])('get_state', { p_session: s.id });
+  assert.equal(g.results[0].catch, 15);
+  assert.equal(g.results[0].stock_next, 30);
+  assert.equal(g.session.round_no, 2);
+  assert.equal(g.session.stage, 'chat');
+  assert.equal(g.assignment.stock, 30);
+  assert.equal((await as(ps[0])('get_messages', { p_session: s.id })).messages.length, 3, 'partners keep their chat history');
+  await T('instructor_control', { p_session: s.id, p_action: 'end_stage' });
+  await drain();
+  await T('instructor_control', { p_session: s.id, p_action: 'end_stage' });
+  await drain();
+  const st = await T('instructor_state', { p_session: s.id });
+  assert.equal(st.session.status, 'finished');
+  assert.equal(st.results.filter((r) => r.round_no === 2).length, 9);
+  assert.ok(st.results.filter((r) => r.round_no === 2).every((r) => r.payload.auto && r.payload.catch === 10), 'missed: last catch repeated, rationed from 30 fish');
+  assert.equal(st.outputs.benchmarks.sustainable_per_person, 10);
 });
 
 test('strategy tournament: save, rate limit hook, results saved by instructor', async () => {

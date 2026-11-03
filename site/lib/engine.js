@@ -10,7 +10,7 @@
 
 export const GAME_TYPES = [
   'competitive', 'monopolistic', 'oligopoly', 'monopoly',
-  'pd_live', 'pd_tournament', 'public_goods', 'ultimatum',
+  'pd_live', 'pd_tournament', 'public_goods', 'ultimatum', 'commons',
 ];
 
 export const GAME_LABELS = {
@@ -22,6 +22,7 @@ export const GAME_LABELS = {
   pd_tournament: "Prisoner's dilemma strategy tournament",
   public_goods: 'Public goods game',
   ultimatum: 'Ultimatum / dictator game',
+  commons: 'Tragedy of the commons',
 };
 
 const MARKET_COMMON = {
@@ -111,6 +112,26 @@ export const DEFAULTS = {
     offer_seconds: 60, respond_seconds: 45,
     leaderboard: 'end', auto_advance: true,
   },
+  commons: {
+    team_mode: 'individual', team_size: 1,
+    variant: 'fishery',                    // 'fishery' (choose how many fish, lake regrows) | 'simple' (extract or wait)
+    group_size: 3,
+    matching: 'partners',                  // 'partners' (same group) | 'strangers' (new random group every season/round)
+    chat: 'on',                            // 'on' | 'off' | 'later' (off in the first half, on in the second)
+    chat_seconds: 60, decide_seconds: 45,
+    // Fishery
+    matches: 2,                            // fishing games, each with full lakes and new groups
+    min_seasons: 6, max_seasons: 10,       // hidden length of each fishing game
+    fish_per_member: 20,                   // lake capacity = this × group size (and the lake starts full)
+    growth: 2,                             // fish left after a season multiply by this, up to capacity
+    max_catch: 20,                         // most one fisher can catch in a season
+    fish_price: 1,                         // $ per fish
+    // Simple (extract or wait)
+    rounds: 6,
+    pool_per_member: 10,                   // pool = this × group size
+    multiplier: 2,                         // the pool grows by this if everyone waits
+    leaderboard: 'end', auto_advance: true,
+  },
 };
 
 const NUM = (v, d) => (v === null || v === undefined || v === '' || Number.isNaN(Number(v)) ? d : Number(v));
@@ -131,6 +152,19 @@ export function normalizeConfig(gameType, cfg = {}) {
   if (gameType === 'pd_live' || gameType === 'pd_tournament') {
     out.min_rounds = Math.max(1, Math.round(out.min_rounds));
     out.max_rounds = Math.max(out.min_rounds, Math.round(out.max_rounds));
+  }
+  if (gameType === 'commons') {
+    if (out.variant !== 'simple') out.variant = 'fishery';
+    if (out.matching !== 'strangers') out.matching = 'partners';
+    if (!['on', 'off', 'later'].includes(out.chat)) out.chat = 'on';
+    out.group_size = Math.max(2, Math.round(out.group_size));
+    out.matches = Math.max(1, Math.round(out.matches));
+    out.min_seasons = Math.max(1, Math.round(out.min_seasons));
+    out.max_seasons = Math.max(out.min_seasons, Math.round(out.max_seasons));
+    out.rounds = Math.max(1, Math.round(out.rounds));
+    out.fish_per_member = Math.max(1, Math.round(out.fish_per_member));
+    out.max_catch = Math.max(1, Math.round(out.max_catch));
+    out.growth = Math.max(0, out.growth);
   }
   if (out.team_mode !== 'teams') out.team_mode = 'individual';
   if ('wage' in base && (cfg.wage !== undefined || cfg.mc_intercept === undefined)) {
@@ -313,6 +347,20 @@ export function benchmarks(gameType, config, nFirms) {
         : 'Nash: every firm best-responds to the others. Joint: the price that would maximise total profit (collusion).',
     };
   }
+  if (gameType === 'commons') {
+    if (c.variant === 'simple') {
+      const n = c.group_size, pool = c.pool_per_member * n;
+      return { kind: 'commons', variant: 'simple', group_size: n, pool,
+        all_wait_each: round2(pool * c.multiplier / n), all_extract_each: round2(pool / n), lone_extractor: round2(pool),
+        note: 'Extracting is the better choice whatever the others do, yet everyone does better if all wait.' };
+    }
+    const n = c.group_size, cap = c.fish_per_member * n;
+    const sustainable = c.growth > 1 ? Math.floor(cap * (1 - 1 / c.growth)) : 0;
+    return { kind: 'commons', variant: 'fishery', group_size: n, capacity: cap,
+      sustainable_group_catch: sustainable, sustainable_per_person: round2(sustainable / n),
+      greedy_group_catch: Math.min(cap, c.max_catch * n),
+      note: 'Sustainable: the most a group can catch every season and still have a full lake next season.' };
+  }
   return null;
 }
 
@@ -350,6 +398,13 @@ export function startGame(gameType, rawConfig, teams, rng = Math.random) {
     state.byes = {};
     return { config, state, open: openUgRound(state, config, ids, 1, rng), outputs };
   }
+  if (gameType === 'commons') {
+    state.groups = null; state.labels = {}; state.last_catch = {};
+    outputs.push({ kind: 'benchmarks', visibility: 'instructor', payload: benchmarks(gameType, config, ids.length) });
+    if (config.variant === 'simple') return { config, state, open: openSimpleRound(state, config, ids, 1, rng), outputs };
+    state.match = 0;
+    return { config, state, open: startFishingGame(state, config, ids, 1, rng), outputs };
+  }
   throw new Error(`Unknown game type ${gameType}`);
 }
 
@@ -369,6 +424,7 @@ export function resolveStage(ctx, rng = Math.random) {
     case 'pd_live': out = resolvePd(c2, rng); break;
     case 'public_goods': out = resolvePg(c2, rng); break;
     case 'ultimatum': out = resolveUg(c2, rng); break;
+    case 'commons': out = resolveCommons(c2, rng); break;
     case 'pd_tournament':
       out = { state: c2.state, results: [], round_public: [], assignments: [], finished: true, outputs: [] }; break;
     default: throw new Error(`Unknown game type ${ctx.gameType}`);
@@ -863,4 +919,220 @@ function finishUg(ctx, responses, rng) {
   const finished = round_no >= c.rounds;
   return { state, results, round_public: [{ round_no, payload: pub }], assignments: [],
     ...(finished ? { finished: true } : { open: openUgRound(state, c, ids, round_no + 1, rng) }) };
+}
+
+// ---------------------------------------------------------------------------
+// Tragedy of the commons
+//   fishery: groups share a lake. Each season everyone chooses how many fish to catch; what is
+//            left multiplies by `growth` (up to capacity). Fishing games have a hidden length.
+//   simple:  each round everyone chooses extract or wait. If all wait, the pool multiplies and is
+//            split equally; otherwise the extractors split the original pool and waiters get nothing.
+// Both can open with a chat stage in which group members message each other anonymously.
+
+function chatOn(c, match, roundNo, season) {
+  if (c.chat === 'on') return true;
+  if (c.chat !== 'later') return false;
+  if (c.variant === 'simple') return roundNo > Math.floor(c.rounds / 2);
+  if (c.matches >= 2) return match > Math.floor(c.matches / 2);
+  return season > Math.floor(c.min_seasons / 2);
+}
+
+function setGroups(state, groups, rng) {
+  state.groups = groups;
+  state.labels = {};
+  state.group_of = {};
+  groups.forEach((g, gi) => {
+    shuffle(g, rng).forEach((id, i) => { state.labels[id] = LETTERS[i]; });
+    for (const id of g) state.group_of[id] = gi;
+  });
+}
+
+/** New random groups with the same sizes as the current ones (so group i keeps lake i). */
+function regroup(state, ids, rng) {
+  const sizes = state.groups.map((g) => g.length);
+  const s = shuffle(ids, rng);
+  const groups = [];
+  let k = 0;
+  for (const n of sizes) { groups.push(s.slice(k, k + n)); k += n; }
+  return groups;
+}
+
+function commonsRequired(state, c, ids) {
+  if (c.variant === 'simple') return ids.filter((id) => state.group_of[id] !== undefined);
+  return ids.filter((id) => state.group_of[id] !== undefined && state.lakes[state.group_of[id]].stock > 0);
+}
+
+function commonsAssignments(state, c, ids, roundNo, chat) {
+  return ids.map((id) => {
+    const gi = state.group_of[id];
+    const g = state.groups[gi] || [];
+    const base = {
+      variant: c.variant, round_no: roundNo, chat, matching: c.matching,
+      group_key: c.matching === 'partners'
+        ? (c.variant === 'simple' ? `g${gi}` : `m${state.match}-g${gi}`)
+        : `r${roundNo}-g${gi}`,
+      group_size: g.length, label: state.labels[id],
+      members: g.map((x) => state.labels[x]).sort(),
+    };
+    if (c.variant === 'simple') {
+      return { team_id: id, info: { ...base, rounds: c.rounds, pool: c.pool_per_member * g.length, multiplier: c.multiplier } };
+    }
+    const lake = state.lakes[gi];
+    return { team_id: id, info: {
+      ...base, match: state.match, matches: c.matches, season: state.season, lake: gi + 1,
+      stock: lake.stock, capacity: lake.capacity, max_catch: c.max_catch, fish_price: c.fish_price,
+      history: lake.history,
+    } };
+  });
+}
+
+function openCommonsStage(state, c, ids, roundNo) {
+  const chat = chatOn(c, state.match || 1, roundNo, state.season || roundNo);
+  return {
+    round_no: roundNo, stage: chat ? 'chat' : 'decide',
+    seconds: chat ? c.chat_seconds : c.decide_seconds,
+    required: commonsRequired(state, c, ids),
+    assignments: commonsAssignments(state, c, ids, roundNo, chat),
+  };
+}
+
+function startFishingGame(state, c, ids, roundNo, rng) {
+  state.match += 1;
+  state.match_length = randInt(c.min_seasons, c.max_seasons, rng); // hidden from players
+  state.season = 1;
+  setGroups(state, formGroups(ids, c.group_size, rng), rng);
+  state.lakes = state.groups.map((g) => {
+    const cap = c.fish_per_member * g.length;
+    return { capacity: cap, stock: cap, history: [] };
+  });
+  return openCommonsStage(state, c, ids, roundNo);
+}
+
+function openSimpleRound(state, c, ids, roundNo, rng) {
+  if (!state.groups || c.matching === 'strangers') setGroups(state, formGroups(ids, c.group_size, rng), rng);
+  return openCommonsStage(state, c, ids, roundNo);
+}
+
+function resolveCommons(ctx, rng) {
+  const { config: c, state, round_no, stage, teams } = ctx;
+  const ids = teams.map((t) => t.id);
+  if (stage === 'chat') {
+    // Chat is over: the same groups now decide.
+    const assignments = commonsAssignments(state, c, ids, round_no, true);
+    return { state, results: [], round_public: [], assignments,
+      open: { round_no, stage: 'decide', seconds: c.decide_seconds, required: commonsRequired(state, c, ids), assignments } };
+  }
+  return c.variant === 'simple' ? resolveSimple(ctx, rng) : resolveSeason(ctx, rng);
+}
+
+function resolveSeason(ctx, rng) {
+  const { config: c, state, round_no, teams } = ctx;
+  const decisions = ctx.decisions || {};
+  const ids = teams.map((t) => t.id);
+  const results = [];
+  const lakesPub = [];
+  const catches = [];
+  state.groups.forEach((g, gi) => {
+    const lake = state.lakes[gi];
+    const start = lake.stock;
+    const req = {}, auto = {};
+    for (const id of g) {
+      const d = decisions[id];
+      const v = d && d.catch !== undefined && d.catch !== null && d.catch !== '' ? Number(d.catch) : NaN;
+      if (Number.isFinite(v)) { req[id] = Math.round(clamp(v, 0, c.max_catch)); auto[id] = false; }
+      else { req[id] = start > 0 ? Math.min(c.max_catch, state.last_catch[id] ?? 0) : 0; auto[id] = start > 0; }
+    }
+    const asked = g.reduce((s, id) => s + req[id], 0);
+    const got = {};
+    if (asked <= start) for (const id of g) got[id] = req[id];
+    else {
+      // Not enough fish for everyone: shares in proportion to what was asked (largest remainders get the leftovers).
+      const exact = g.map((id) => ({ id, x: (req[id] * start) / asked }));
+      for (const e of exact) got[e.id] = Math.floor(e.x);
+      let left = start - exact.reduce((s, e) => s + got[e.id], 0);
+      for (const e of exact.slice().sort((a, b) => (b.x - Math.floor(b.x)) - (a.x - Math.floor(a.x)))) {
+        if (left <= 0) break;
+        got[e.id] += 1; left -= 1;
+      }
+    }
+    const caught = g.reduce((s, id) => s + got[id], 0);
+    const remaining = start - caught;
+    const next = Math.min(lake.capacity, Math.floor(remaining * c.growth + 1e-9));
+    lake.history.push({ season: state.season, start, caught, left: remaining, next });
+    lake.stock = next;
+    lakesPub.push({ lake: gi + 1, capacity: lake.capacity, start, caught, next });
+    for (const id of g) {
+      const earnings = round2(got[id] * c.fish_price);
+      if (!auto[id] && start > 0) state.last_catch[id] = req[id];
+      state.cum[id] = round2((state.cum[id] || 0) + earnings);
+      state.rounds_played[id] = (state.rounds_played[id] || 0) + 1;
+      if (start > 0) catches.push(got[id]);
+      results.push({ round_no, team_id: id, earnings, payload: {
+        variant: 'fishery', match: state.match, season: state.season, lake: gi + 1, label: state.labels[id],
+        requested: req[id], catch: got[id], auto: auto[id], empty_lake: start === 0,
+        stock_start: start, group_catch: caught, stock_left: remaining, stock_next: next, capacity: lake.capacity,
+        others: g.filter((x) => x !== id).map((x) => ({ label: state.labels[x], catch: got[x] })).sort((a, b) => a.label.localeCompare(b.label)),
+        earnings, cumulative: state.cum[id],
+      } });
+    }
+  });
+  const allEmpty = state.lakes.every((l) => l.stock === 0);
+  const matchOver = state.season >= state.match_length || allEmpty;
+  const pub = {
+    round_no, variant: 'fishery', match: state.match, season: state.season, lakes: lakesPub,
+    average_level: round2(lakesPub.reduce((s, l) => s + l.next / l.capacity, 0) / Math.max(1, lakesPub.length)),
+    average_catch: catches.length ? round2(catches.reduce((s, x) => s + x, 0) / catches.length) : null,
+    lakes_empty: lakesPub.filter((l) => l.next === 0).length,
+    match_over: matchOver,
+  };
+  if (matchOver) { pub.seasons_played = state.season; pub.all_empty = allEmpty; }
+  if (c.leaderboard === 'live') pub.leaderboard = leaderboard(teams, state);
+  let next;
+  if (!matchOver) {
+    state.season += 1;
+    if (c.matching === 'strangers') setGroups(state, regroup(state, ids, rng), rng);
+    next = { open: openCommonsStage(state, c, ids, round_no + 1) };
+  } else if (state.match < c.matches) {
+    next = { open: startFishingGame(state, c, ids, round_no + 1, rng) };
+  } else {
+    next = { finished: true };
+  }
+  return { state, results, round_public: [{ round_no, payload: pub }], assignments: [], ...next };
+}
+
+function resolveSimple(ctx, rng) {
+  const { config: c, state, round_no, teams } = ctx;
+  const decisions = ctx.decisions || {};
+  const ids = teams.map((t) => t.id);
+  const results = [];
+  let extractN = 0, people = 0, allWaitGroups = 0;
+  state.groups.forEach((g) => {
+    const choice = {}, auto = {};
+    for (const id of g) {
+      const d = decisions[id];
+      if (d && (d.choice === 'extract' || d.choice === 'wait')) { choice[id] = d.choice; auto[id] = false; }
+      else { choice[id] = 'wait'; auto[id] = true; }
+    }
+    const pool = c.pool_per_member * g.length;
+    const k = g.filter((id) => choice[id] === 'extract').length;
+    const grown = k === 0 ? round2(pool * c.multiplier) : null;
+    if (k === 0) allWaitGroups++;
+    extractN += k; people += g.length;
+    for (const id of g) {
+      const earnings = k === 0 ? round2(grown / g.length) : choice[id] === 'extract' ? round2(pool / k) : 0;
+      state.cum[id] = round2((state.cum[id] || 0) + earnings);
+      state.rounds_played[id] = (state.rounds_played[id] || 0) + 1;
+      results.push({ round_no, team_id: id, earnings, payload: {
+        variant: 'simple', label: state.labels[id], choice: choice[id], auto: auto[id], group_size: g.length,
+        pool, extractors: k, grown, earnings, cumulative: state.cum[id],
+        others: g.filter((x) => x !== id).map((x) => ({ label: state.labels[x], choice: choice[x] })).sort((a, b) => a.label.localeCompare(b.label)),
+      } });
+    }
+  });
+  const pub = { round_no, variant: 'simple', extract_rate: people ? round2(extractN / people) : null,
+    groups: state.groups.length, groups_all_waited: allWaitGroups };
+  if (c.leaderboard === 'live') pub.leaderboard = leaderboard(teams, state);
+  const finished = round_no >= c.rounds;
+  return { state, results, round_public: [{ round_no, payload: pub }], assignments: [],
+    ...(finished ? { finished: true } : { open: openSimpleRound(state, c, ids, round_no + 1, rng) }) };
 }

@@ -6,6 +6,7 @@ import { statusChip } from './student.js';
 import { decisionPanel, lastResult, historyBlock, publicBlock, finalBlock, stageLabel, roundsTotal } from './panels.js';
 import { renderLab } from './lab.js';
 import { demoSubmit, demoPass } from '../lib/demo.js';
+import { startChatPolling, stopChatPolling, commonsLoaded } from './commons.js';
 
 let stopWatch = null;
 let currentId = null;
@@ -17,8 +18,9 @@ export function enterPlay(id) {
   store.ui.quiz = null; store.ui.preview = null; store.ui.pg = null;
   load();
   stopWatch = watchSession(id, load);
+  startChatPolling();
 }
-export function leavePlay() { stopWatch?.(); stopWatch = null; currentId = null; }
+export function leavePlay() { stopWatch?.(); stopWatch = null; currentId = null; stopChatPolling(); }
 
 async function load() {
   if (!currentId) return;
@@ -37,6 +39,7 @@ async function load() {
     if (prev && prev._stageKey !== stageKey) { store.ui.preview = null; store.ui.pg = null; }
     g._stageKey = stageKey;
     setState({ game: g });
+    commonsLoaded(g);
   } catch (e) {
     setState({ game: { error: e.message } });
   } finally {
@@ -209,6 +212,7 @@ function totalSeconds(s) {
   const c = normalizeConfig(s.game_type, s.config);
   if (s.game_type === 'public_goods') return s.stage === 'punish' ? c.punish_seconds : c.contribute_seconds;
   if (s.game_type === 'ultimatum') return s.stage === 'respond' ? c.respond_seconds : c.offer_seconds;
+  if (s.game_type === 'commons') return s.stage === 'chat' ? c.chat_seconds : c.decide_seconds;
   return c.round_seconds ?? c.writing_seconds;
 }
 
@@ -216,12 +220,13 @@ function live(g, cfg) {
   const s = g.session;
   if (s.game_type === 'pd_tournament') return renderLab(g, cfg);
   const total = roundsTotal(s.game_type, cfg);
+  const season = s.game_type === 'commons' && g.assignment?.season;
   return html`
     <section class="live-head">
       <div class="lh-title">${s.title !== GAME_LABELS[s.game_type] ? html`<p class="kicker">${GAME_LABELS[s.game_type]}</p>` : ''}<h1>${s.title}</h1></div>
-      <div class="round-badge"><span class="rb-n">${s.round_no}</span><span class="rb-of">${total ? `of ${total}` : 'round'}</span></div>
+      <div class="round-badge"><span class="rb-n">${season || s.round_no}</span><span class="rb-of">${season ? 'season' : total ? `of ${total}` : 'round'}</span></div>
     </section>
-    ${timerBar(s)}
+    ${timerBar(s, s.game_type === 'commons' && s.stage === 'chat' ? 'Chat time left' : 'Time left')}
     ${s.team_mode === 'teams' && g.team ? html`<div class="teamstrip"><strong>${g.team.name}</strong>
       <span>${g.me.is_captain ? 'You are captain this round' : `Captain this round: ${g.me.captain_name || '–'}`}</span></div>` : ''}
     <div class="live-grid">
@@ -255,9 +260,9 @@ function finished(g, cfg) {
 
 on('demo-skip-check', () => demoPass());
 
-export async function submit(payload) {
+export async function submit(payload, message = 'Decision saved. You can change it until time runs out.') {
   if (store.game?.demo) { demoSubmit(payload); return; }
   await rpc('submit_decision', { p_session: currentId, p_payload: payload });
-  toast('Decision saved. You can change it until time runs out.');
+  toast(message);
   await load();
 }

@@ -101,6 +101,39 @@ export const GAME_INFO = {
       'Roles are assigned at random each round. Partners are anonymous.',
     ],
   },
+  commons: {
+    short: 'Share a fishing lake with two anonymous classmates. Catch fish now, or leave some so the lake refills.',
+    rules: (c) => {
+      const n = c.group_size;
+      const who = c.variant === 'simple' ? 'Player' : 'Fisher';
+      const chat = c.chat === 'off' ? [] : [
+        `${c.chat === 'later' ? 'Later in the game, before' : 'Before'} each decision you get ${c.chat_seconds ? `${c.chat_seconds} seconds` : 'time'} to message your group. Names are hidden: you appear as ${who} A, B or C. Your instructor can see who wrote what.`,
+      ];
+      if (c.variant === 'simple') {
+        const pool = c.pool_per_member * n;
+        return [
+          `You are in a random group of ${n}. Your group shares a pool worth ${money2(pool)}.`,
+          `Each round, everyone chooses Extract or Wait at the same time.`,
+          `If everyone waits, the pool grows to ${money2(pool * c.multiplier)} and is split equally: ${money2(pool * c.multiplier / n)} each.`,
+          `If anyone extracts, the people who extracted split the ${money2(pool)} pool and those who waited get nothing.`,
+          c.matching === 'partners' ? `Your group stays the same for all ${c.rounds} rounds.` : `You get a new random group every round (${c.rounds} rounds).`,
+          ...chat,
+          'If you do not choose in time, you wait.',
+        ];
+      }
+      const cap = c.fish_per_member * n;
+      return [
+        `You fish a lake with ${n - 1} other people (groups of ${n}). The lake holds up to ${cap} fish and starts full.`,
+        `Each season, everyone chooses how many fish to catch, from 0 to ${c.max_catch}. Each fish earns you ${money2(c.fish_price)}.`,
+        `The fish left in the lake ${c.growth === 2 ? 'double' : `multiply by ${c.growth}`} before the next season, up to ${cap}. If the lake is emptied, it never recovers.`,
+        'If your group asks for more fish than the lake has, the fish are shared in proportion to what each person asked for.',
+        `A fishing game lasts between ${c.min_seasons} and ${c.max_seasons} seasons. Nobody knows which season is the last.${c.matches > 1 ? ` Then the lakes are restocked and groups are reshuffled (${c.matches} fishing games in all).` : ''}`,
+        c.matching === 'partners' ? 'Your group and lake stay the same for the whole fishing game.' : 'Every season you are sent to a random lake with different people.',
+        ...chat,
+        'If you do not choose in time, your catch from last season is repeated (0 in your first season).',
+      ];
+    },
+  },
 };
 
 const money2 = (v) => { const n = Number(v); return `$${n.toLocaleString(undefined, Number.isInteger(n) ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; };
@@ -211,6 +244,27 @@ export const SETTINGS = {
     S('respond_seconds', 'Seconds to respond', 'number', '', { min: 0, step: 5, showIf: (c) => c.variant !== 'dictator' }),
     S('auto_advance', 'End stage early when everyone has decided', 'bool', ''),
     S('leaderboard', 'Leaderboard', 'select', '', { options: [['end', 'Show at the end'], ['live', 'Show after every round'], ['never', 'Never show students']] })],
+  commons: [
+    S('variant', 'Version', 'select', 'Fishery: the lake regrows from what is left, so overuse builds up over time. Simple: one extract-or-wait choice per round.',
+      { options: [['fishery', 'Fishery (choose a catch)'], ['simple', 'Simple (extract or wait)']] }),
+    S('group_size', 'Group size', 'number', 'Leftover students are added to some groups.', { min: 2, max: 8, step: 1 }),
+    S('matching', 'Groups', 'select', '', { options: [['partners', 'Partners: same group throughout'], ['strangers', 'Strangers: new random group every season/round']] }),
+    S('chat', 'Anonymous group chat before deciding', 'select', 'Students message their group as Fisher A, B, C. You can read every message with names.',
+      { options: [['on', 'On every season/round'], ['off', 'Off'], ['later', 'Off in the first half, on in the second (compare)']] }),
+    S('chat_seconds', 'Seconds to chat', 'number', 'Chat ends early when everyone clicks Ready.', { min: 0, step: 15, showIf: (c) => c.chat !== 'off' }),
+    S('decide_seconds', 'Seconds to decide', 'number', '0 = no timer.', { min: 0, step: 5 }),
+    S('matches', 'Fishing games', 'number', 'Each starts with full lakes and new groups. Use 2 with chat "Off in the first half" to compare.', { min: 1, max: 10, step: 1, showIf: (c) => c.variant !== 'simple' }),
+    S('min_seasons', 'Shortest fishing game (seasons)', 'number', 'Each fishing game has a hidden random length in this range.', { min: 1, step: 1, showIf: (c) => c.variant !== 'simple' }),
+    S('max_seasons', 'Longest fishing game (seasons)', 'number', '', { min: 1, step: 1, showIf: (c) => c.variant !== 'simple' }),
+    S('fish_per_member', 'Lake size per group member (fish)', 'number', 'Lake capacity = this × group size (60 for a group of 3).', { min: 1, step: 1, showIf: (c) => c.variant !== 'simple' }),
+    S('growth', 'Regrowth: fish left are multiplied by', 'number', '2 = what is left doubles (up to capacity). The most a group can catch every season and keep the lake full is capacity × (1 − 1/regrowth).', { min: 1, max: 5, step: 0.1, showIf: (c) => c.variant !== 'simple' }),
+    S('max_catch', 'Most fish one person can catch per season', 'number', '', { min: 1, step: 1, showIf: (c) => c.variant !== 'simple' }),
+    S('fish_price', 'Earnings per fish ($)', 'number', '', { min: 0.01, step: 0.25, showIf: (c) => c.variant !== 'simple' }),
+    S('rounds', 'Rounds', 'number', '', { min: 1, max: 30, step: 1, showIf: (c) => c.variant === 'simple' }),
+    S('pool_per_member', 'Pool per group member ($)', 'number', 'Pool = this × group size ($30 for a group of 3).', { min: 1, step: 1, showIf: (c) => c.variant === 'simple' }),
+    S('multiplier', 'If everyone waits, the pool is multiplied by', 'number', '', { min: 1, step: 0.5, showIf: (c) => c.variant === 'simple' }),
+    S('auto_advance', 'End stage early when everyone has decided', 'bool', ''),
+    S('leaderboard', 'Leaderboard', 'select', '', { options: [['end', 'Show at the end'], ['live', 'Show after every round'], ['never', 'Never show students']] })],
 };
 
 export const defaultsFor = (gameType) => ({ ...DEFAULTS[gameType] });
@@ -311,6 +365,35 @@ export function quizFor(gameType, cfg) {
           [`Proposer $${c.pie - offer}, responder $0`, `Both get $${c.pie / 2}`, `Proposer $${c.pie}, responder $0`]),
         Q(`The responder accepts an offer of $${offer}. What does the proposer get?`, `$${c.pie - offer}`, uniq(`$${c.pie - offer}`, [`$${offer}`, `$${c.pie}`, `$0`])),
         Q('Who is your partner?', 'A random, anonymous classmate, new each round', ['Your best friend', 'The same person all game', 'The instructor'])];
+    }
+    case 'commons': {
+      const n = c.group_size;
+      const anon = Q('Who can see that a chat message came from you?', `Only the instructor; classmates see a letter like ${c.variant === 'simple' ? 'Player' : 'Fisher'} B`,
+        ['Everyone in the class', 'Your group sees your name', 'Nobody, not even the instructor']);
+      if (c.variant === 'simple') {
+        const pool = c.pool_per_member * n;
+        return [
+          Q('Everyone in your group waits. What do you get?', money2(pool * c.multiplier / n), uniq(money2(pool * c.multiplier / n), [money2(pool / n), money2(pool), money2(0)])),
+          Q('You wait, but one groupmate extracts. What do you get?', money2(0), uniq(money2(0), [money2(pool / n), money2(pool * c.multiplier / n), money2(pool / 2)])),
+          Q('You extract and everyone else waits. What do you get?', money2(pool), uniq(money2(pool), [money2(pool / n), money2(pool * c.multiplier / n), money2(0)])),
+          ...(c.chat === 'off' ? [] : [anon]),
+        ];
+      }
+      const cap = c.fish_per_member * n;
+      const take = Math.round(cap / 2);
+      const left = cap - take;
+      const nextS = Math.min(cap, Math.floor(left * c.growth));
+      const each = Math.max(1, Math.round(take / n));
+      return [
+        Q(`The lake has ${cap} fish and your group catches ${take} in total. How many fish are in the lake next season?`, nextS,
+          uniq(nextS, [left, cap - each, Math.min(cap, left + take), Math.floor(left * c.growth) + 10])),
+        Q(`You catch ${each} fish. What do you earn this season?`, money2(each * c.fish_price), uniq(money2(each * c.fish_price), [money2(take * c.fish_price), money2(0), money2(cap * c.fish_price / n)])),
+        Q('How long does a fishing game last?', `Between ${c.min_seasons} and ${c.max_seasons} seasons, and you won't know when it ends`,
+          [`Exactly ${c.max_seasons} seasons`, 'Until the lake is half empty', 'Until the instructor says stop']),
+        Q('What happens if the lake is emptied?', 'It stays empty: nobody can catch anything for the rest of that fishing game',
+          ['It refills to full next season', 'It refills halfway', 'You get the fish anyway']),
+        ...(c.chat === 'off' ? [] : [anon]),
+      ];
     }
     default: return [];
   }

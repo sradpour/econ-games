@@ -25,7 +25,7 @@ export function flatten(obj, prefix = '') {
   const out = {};
   for (const [k, v] of Object.entries(obj || {})) {
     if (v === null || v === undefined) continue;
-    if (Array.isArray(v)) out[prefix + k] = v.map((x) => (typeof x === 'object' ? (x.contribution ?? JSON.stringify(x)) : x)).join(', ');
+    if (Array.isArray(v)) out[prefix + k] = v.map((x) => (typeof x === 'object' ? (x.contribution ?? x.catch ?? x.choice ?? JSON.stringify(x)) : x)).join(', ');
     else if (typeof v === 'object') Object.assign(out, flatten(v, `${prefix}${k}_`));
     else out[prefix + k] = v;
   }

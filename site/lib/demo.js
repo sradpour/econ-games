@@ -3,12 +3,13 @@
 import { startGame, resolveStage, normalizeConfig, benchmarks, GAME_LABELS } from './engine.js';
 import { store, rerender } from './dom.js';
 
-const BOTS = { competitive: 11, monopolistic: 9, oligopoly: 5, monopoly: 0, pd_live: 3, public_goods: 3, ultimatum: 3 };
+const BOTS = { competitive: 11, monopolistic: 9, oligopoly: 5, monopoly: 0, pd_live: 3, public_goods: 3, ultimatum: 3, commons: 5 };
 const DEMO_CONFIG = {
   competitive: { rounds: 6 }, monopolistic: { rounds: 6 }, oligopoly: { rounds: 6 }, monopoly: { rounds: 5 },
   pd_live: { matches: 2, min_rounds: 5, max_rounds: 8 },
   public_goods: { rounds_no_punish: 3, rounds_punish: 3, group_size: 4 },
   ultimatum: { rounds: 6 },
+  commons: { matches: 2, min_seasons: 4, max_seasons: 6, chat: 'on', rounds: 5 },
 };
 const MARKETS = ['competitive', 'monopolistic', 'oligopoly', 'monopoly'];
 const U = (a, b) => a + Math.random() * (b - a);
@@ -20,7 +21,7 @@ let demo = null;
 
 export function startDemo(gameType, options = {}) {
   const base = { ...DEMO_CONFIG[gameType], ...options, team_mode: 'individual', round_seconds: 0,
-    contribute_seconds: 0, punish_seconds: 0, offer_seconds: 0, respond_seconds: 0 };
+    contribute_seconds: 0, punish_seconds: 0, offer_seconds: 0, respond_seconds: 0, chat_seconds: 0, decide_seconds: 0 };
   const cfg = normalizeConfig(gameType, base);
   const n = BOTS[gameType];
   const letters = 'ABCDEFGHIJKLMNOP';
@@ -32,6 +33,7 @@ export function startDemo(gameType, options = {}) {
     results: [], public: [], outputs: {}, finished: false, passed: false, myDecision: null,
     bench: benchmarks(gameType, g.config, teams.length),
     bots: Object.fromEntries(teams.slice(1).map((t, i) => [t.id, botProfile(gameType, i)])),
+    chat: [], chatId: 0, chatOpened: null,
   };
   for (const o of g.outputs) if (o.visibility === 'students') demo.outputs[o.kind] = o.payload;
   autoAdvance();
@@ -70,6 +72,65 @@ function resolveOnce() {
   d.open = r.open;
 }
 
+// ---------------------------------------------------------------------------
+// Commons demo chat: computer groupmates answer (and do not always keep their word).
+
+const myInfo = () => demo.open.assignments.find((a) => a.team_id === 'me')?.info || {};
+const groupmates = () => {
+  const st = demo.state;
+  const gi = st.group_of?.me;
+  return gi === undefined ? [] : st.groups[gi].filter((x) => x !== 'me');
+};
+function botSay(id, body) {
+  const info = myInfo();
+  demo.chat.push({ id: ++demo.chatId, key: info.group_key, round_no: demo.open.round_no, label: demo.state.labels[id], body, mine: false });
+}
+function fairShare(info) {
+  const c = demo.config;
+  if (!info.capacity) return 0;
+  return Math.max(0, Math.floor((info.stock - info.capacity / c.growth) / info.group_size));
+}
+function openChatIfNeeded() {
+  const d = demo;
+  if (d.type !== 'commons' || d.finished || d.open.stage !== 'chat' || d.chatOpened === d.open.round_no) return;
+  d.chatOpened = d.open.round_no;
+  const info = myInfo();
+  const mates = groupmates();
+  if (!mates.length || Math.random() < 0.3) return;
+  const id = pick(mates);
+  if (info.variant === 'simple') botSay(id, pick(['hi', 'Should we all wait?', 'What is everyone doing this round?']));
+  else if (info.stock > 0) botSay(id, pick(['Hi everyone.', `${info.stock} fish left. How many each?`, 'How many are we taking this season?']));
+}
+
+export function demoChatSend(body) {
+  const d = demo;
+  if (!d || d.type !== 'commons' || d.open.stage !== 'chat') return;
+  const info = myInfo();
+  d.chat.push({ id: ++d.chatId, key: info.group_key, round_no: d.open.round_no, label: info.label, body, mine: true });
+  publish();
+  const n = Number((body.match(/\d+/) || [])[0]);
+  const wantsWait = /wait/i.test(body);
+  const round = d.open.round_no;
+  groupmates().forEach((id, k) => {
+    setTimeout(() => {
+      if (!demo || demo !== d || d.open.round_no !== round || d.open.stage !== 'chat') return;
+      const bot = d.bots[id];
+      if (info.variant === 'simple') {
+        if (wantsWait) {
+          bot.promise = { round, value: 'wait' };
+          botSay(id, bot.kind === 'extractor' ? pick(['Sure, waiting.', 'ok']) : pick(["Yes, let's all wait.", 'Agreed, I wait.']));
+        } else if (Math.random() < 0.7) botSay(id, pick(['If we all wait we each get double.', 'ok', 'I will wait if you do.']));
+      } else if (Number.isFinite(n) && n >= 0) {
+        bot.promise = { round, value: n };
+        botSay(id, bot.kind === 'greedy' ? pick(['Deal.', `Sure, ${n}.`, 'ok']) : pick([`OK, ${n} each.`, `${n} works for me.`]));
+      } else if (Math.random() < 0.75) {
+        botSay(id, pick(['hi', `If we each take ${fairShare(info)} the lake refills.`, "I won't take much this season.", 'ok']));
+      }
+      publish();
+    }, 900 + k * 900 + Math.random() * 600);
+  });
+}
+
 // Stages where you have nothing to do (a bye, or the other side's turn) resolve on their own.
 function autoAdvance() {
   let guard = 0;
@@ -78,6 +139,7 @@ function autoAdvance() {
 
 function publish() {
   const d = demo;
+  openChatIfNeeded();
   const name = Object.fromEntries(d.teams.map((t) => [t.id, t.name]));
   const mine = d.results.filter((r) => r.team_id === 'me');
   const g = {
@@ -96,6 +158,10 @@ function publish() {
     public: d.public.map((p) => ({ ...p.payload, round_no: p.round_no })),
     outputs: d.outputs,
   };
+  if (d.type === 'commons') {
+    const key = g.assignment?.group_key ?? d.chat[d.chat.length - 1]?.key;
+    g.chat = { items: d.chat.filter((m) => m.key === key) };
+  }
   if (d.finished && MARKETS.includes(d.type)) {
     g.all_results = d.results.map((r) => ({ team: name[r.team_id], round_no: r.round_no, price: r.payload.price,
       produced: r.payload.produced, sold: r.payload.sold, branding: r.payload.branding, profit: r.payload.profit }));
@@ -112,6 +178,7 @@ function botProfile(type, i) {
   if (type === 'public_goods') return { kind: i === 0 ? 'free-rider' : 'conditional', start: U(8, 16) };
   if (type === 'ultimatum') return { offers: pick([[4, 5], [3, 4, 5], [5], [2, 3, 4]]), threshold: pick([2, 3, 3, 4]) };
   if (type === 'monopolistic') return { brand: pick([0, 0, 15, 30, 50]), bias: U(-0.15, 0.15) };
+  if (type === 'commons') return { kind: ['copycat', 'greedy', 'steady', 'greedy', 'steady'][i % 5] };
   return { bias: U(-0.12, 0.12) };
 }
 
@@ -164,6 +231,26 @@ function botDecide(id, info) {
     const avg = others.reduce((s, x) => s + x, 0) / Math.max(1, others.length);
     const punished = mine.points_received > 0 ? 3 : 0;
     return { contribution: Math.round(clamp(0.5 * mine.contribution + 0.5 * avg - U(0, 2) + punished, 0, c.endowment)) };
+  }
+  if (t === 'commons') {
+    if (d.open.stage === 'chat') return { ready: true };
+    const promise = bot.promise?.round === d.open.round_no ? bot.promise.value : null;
+    if (info.variant === 'simple') {
+      const prev = lastOf(id);
+      const burned = prev && prev.extractors > 0 && prev.choice === 'wait';
+      if (bot.kind === 'greedy') return { choice: Math.random() < (promise ? 0.5 : 0.7) ? 'extract' : 'wait' };
+      if (promise === 'wait' && !burned) return { choice: 'wait' };
+      return { choice: burned && Math.random() < 0.6 ? 'extract' : Math.random() < 0.2 ? 'extract' : 'wait' };
+    }
+    const share = fairShare(info);
+    let want;
+    if (bot.kind === 'greedy') want = (promise ?? share) + Math.round(U(4, 8));
+    else if (bot.kind === 'copycat') {
+      const prev = lastOf(id);
+      const avg = prev && !prev.empty_lake && prev.others.length ? prev.others.reduce((s2, o) => s2 + o.catch, 0) / prev.others.length : share;
+      want = promise ?? Math.round(avg);
+    } else want = promise ?? share + Math.round(U(-1, 1));
+    return { catch: clamp(Math.round(want), 0, c.max_catch) };
   }
   if (t === 'ultimatum') {
     if (d.open.stage === 'offer') return { offer: Math.min(c.pie, Math.round(pick(bot.offers) * c.pie / 10)) };
