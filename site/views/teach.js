@@ -52,7 +52,7 @@ function classCard(c) {
         <p class="muted small">${plural(Math.max(0, c.members - 1), 'student')} · ${c.allowed_domains.length ? c.allowed_domains.join(', ') : 'any account'}</p></div>
       <div class="code-box" title="Class code"><span class="small muted">Class code</span><strong>${c.join_code}</strong></div>
     </div>
-    ${c.sessions.length ? html`<ul class="game-list">${c.sessions.slice(0, 8).map((s) => html`<li data-key="${s.id}"><a class="game-row ${s.status}" href="#/teach/game/${s.id}">
+    ${c.sessions.length ? html`<ul class="game-list">${c.sessions.slice(0, 8).map((s) => html`<li data-key="${s.id}"><a class="game-row ${s.status} gt-${s.game_type}" href="#/teach/game/${s.id}">
       <span class="g-title">${s.title}</span><span class="g-type">${GAME_LABELS[s.game_type]} · ${plural(s.players, 'player')}</span>${statusChip(s.status)}</a></li>`)}</ul>
       ${c.sessions.length > 8 ? html`<p class="small"><a href="#/teach/class/${c.id}">All ${c.sessions.length} games</a></p>` : ''}` : html`<p class="muted">No games yet.</p>`}
     <div class="row"><a class="button primary" href="#/teach/new/${c.id}">New game</a><a class="button" href="#/teach/class/${c.id}">Roster and settings</a></div>
@@ -97,7 +97,7 @@ export function renderClass(id) {
         </tbody></table></div>`}
     </section>
     <section class="card"><div class="row spread"><h2>Games</h2><a class="button primary" href="#/teach/new/${c.id}">New game</a></div>
-      <ul class="game-list">${c.sessions.map((s) => html`<li data-key="${s.id}"><a class="game-row ${s.status}" href="#/teach/game/${s.id}">
+      <ul class="game-list">${c.sessions.map((s) => html`<li data-key="${s.id}"><a class="game-row ${s.status} gt-${s.game_type}" href="#/teach/game/${s.id}">
         <span class="g-title">${s.title}</span><span class="g-type">${GAME_LABELS[s.game_type]} · ${plural(s.players, 'player')}</span>${statusChip(s.status)}</a></li>`)}</ul></section>
   </main>`;
 }
@@ -172,7 +172,7 @@ function costSummary(type, values) {
 }
 
 function typeCard(t, classId) {
-  return html`<button class="type-card" data-action="ng-type" data-type="${t}" data-class="${classId}">
+  return html`<button class="type-card gt-${t}" data-action="ng-type" data-type="${t}" data-class="${classId}">
     <strong>${GAME_LABELS[t]}</strong><span>${GAME_INFO[t].short}</span></button>`;
 }
 

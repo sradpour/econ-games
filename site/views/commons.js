@@ -22,33 +22,39 @@ export function commonsStageLabel(s, g) {
 // The lake (one fish per unit of capacity) and the pool
 
 function lakeSvg(stock, cap) {
-  const cols = 10, cw = 26, ch = 17, rows = Math.ceil(cap / cols);
-  const W = cols * cw + 10, H = rows * ch + 10;
+  const cols = 10, cw = 28, ch = 19, rows = Math.ceil(cap / cols);
+  const W = cols * cw + 12, H = rows * ch + 14;
+  let waves = '';
+  for (let y = 10; y < H; y += 12) waves += `<path d="M0 ${y} q 7 -4 14 0 t 14 0 t 14 0 t 14 0 t 14 0 t 14 0 t 14 0 t 14 0 t 14 0 t 14 0 t 14 0 t 14 0 t 14 0 t 14 0 t 14 0 t 14 0 t 14 0 t 14 0 t 14 0 t 14 0 t 14 0 t 14 0"/>`;
   let fish = '';
   for (let i = 0; i < cap; i++) {
-    const x = 6 + (i % cols) * cw, y = 6 + Math.floor(i / cols) * ch;
-    fish += `<g class="${i < stock ? 'fish' : 'fish gone'}" transform="translate(${x} ${y})"><ellipse cx="9" cy="6" rx="8" ry="4.6"/><path d="M16 6 L22.5 1.5 L22.5 10.5 Z"/></g>`;
+    const x = 8 + (i % cols) * cw + (Math.floor(i / cols) % 2 ? 6 : 0), y = 8 + Math.floor(i / cols) * ch;
+    fish += `<g class="${i < stock ? 'fish' : 'fish gone'}" transform="translate(${x} ${y})"><path d="M1 7 C 5 1, 13 1, 17 7 C 13 13, 5 13, 1 7 Z"/><path d="M16 7 L23 2.5 L21.5 7 L23 11.5 Z"/><circle class="eye" cx="5" cy="6" r="1.1"/></g>`;
   }
-  return raw(`<svg class="lake-svg" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${stock} of ${cap} fish"><rect class="water" x="0" y="0" width="${W}" height="${H}" rx="12"/>${fish}</svg>`);
+  return raw(`<svg class="lake-svg" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${stock} of ${cap} fish"><rect class="water" x="0" y="0" width="${W}" height="${H}"/><g class="waves">${waves}</g>${fish}</svg>`);
 }
 
 function lakeBlock(a) {
-  return html`<div class="lake">
-    <div class="lake-head"><span><strong class="big-num">${a.stock}</strong> of ${a.capacity} fish in ${a.matching === 'strangers' ? `lake ${a.lake}` : 'your lake'}</span>
-      <span class="small muted">${a.matches > 1 ? `Fishing game ${a.match} of ${a.matches} · ` : ''}You are Fisher ${a.label}</span></div>
-    ${lakeSvg(a.stock, a.capacity)}
+  return html`<div class="lake tile">
+    <div class="tile-band"><span>${a.matching === 'strangers' ? `Lake ${a.lake}` : 'Your lake'}</span><small>${a.matches > 1 ? `Fishing game ${a.match} of ${a.matches}, ` : ''}you are Fisher ${a.label}</small></div>
+    <div class="tile-body">
+      <p class="tile-count"><strong class="big-num">${a.stock}</strong><span>of ${a.capacity} fish left</span></p>
+      ${lakeSvg(a.stock, a.capacity)}
+    </div>
   </div>`;
 }
 
 function poolBlock(a) {
   const each = a.pool * a.multiplier / a.group_size;
-  return html`<div class="pool">
-    <p class="pool-amt"><span class="small muted">Your group's pool</span><strong class="big-num">${money(a.pool)}</strong></p>
-    <ul class="small">
-      <li>All ${a.group_size} wait: the pool grows to <strong>${money(a.pool * a.multiplier)}</strong>, so <strong>${money(each, Number.isInteger(each) ? 0 : 2)}</strong> each.</li>
-      <li>Anyone extracts: the extractors split <strong>${money(a.pool)}</strong>; those who waited get <strong>$0</strong>.</li>
-    </ul>
-    <p class="small muted">Round ${a.round_no} of ${a.rounds} · You are Player ${a.label}</p>
+  return html`<div class="pool tile">
+    <div class="tile-band"><span>Your group's pool</span><small>Round ${a.round_no} of ${a.rounds}, you are Player ${a.label}</small></div>
+    <div class="tile-body">
+      <div class="pool-amt"><span class="pool-chip">${money(a.pool)}</span>
+        <ul class="small">
+          <li>All ${a.group_size} wait: the pool grows to <strong>${money(a.pool * a.multiplier)}</strong>, so <strong>${money(each, Number.isInteger(each) ? 0 : 2)}</strong> each.</li>
+          <li>Anyone extracts: the extractors split <strong>${money(a.pool)}</strong>; those who waited get <strong>$0</strong>.</li>
+        </ul></div>
+    </div>
   </div>`;
 }
 

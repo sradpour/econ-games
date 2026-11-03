@@ -72,7 +72,7 @@ export function renderControl(route) {
   const c = normalizeConfig(s.game_type, s.config);
   if (route.projector) return projector(st, c);
   const teamOf = Object.fromEntries(st.teams.map((t) => [t.id, t]));
-  return html`<main class="page control">
+  return html`<main class="page control gt-${s.game_type}">
     <a class="back" href="#/teach">← ${s.class_name}</a>
     <div class="ctrl-head">
       <div>${s.title !== GAME_LABELS[s.game_type] ? html`<p class="kicker">${GAME_LABELS[s.game_type]}</p>` : ''}<h1>${s.title}</h1>${statusChip(s.status)}</div>
@@ -191,7 +191,7 @@ function livePanels(st, c, teamOf) {
       series: [{ name: t === 'monopoly' ? 'Average' : 'Market price', color: 'demand', dots: true, points: byRound(t === 'monopoly' ? 'average_price' : 'market_price') },
         { name: 'Highest', color: 'muted', dashed: true, points: prices(Math.max) }, { name: 'Lowest', color: 'muted', dashed: true, points: prices(Math.min) }] });
   } else if (t === 'pd_live') {
-    chart = lineChart({ title: 'Cooperation rate', xInteger: true, xLabel: 'Round', yLabel: '%', series: [{ color: 'demand', dots: true, points: pubs.map((p) => [p.round_no, p.cooperation_rate === null ? null : p.cooperation_rate * 100]) }] });
+    chart = lineChart({ title: 'Cooperation rate', xInteger: true, xLabel: 'Round', yLabel: '%', yMax: 100, series: [{ color: 'demand', dots: true, points: pubs.map((p) => [p.round_no, p.cooperation_rate === null ? null : p.cooperation_rate * 100]) }] });
   } else if (t === 'public_goods') {
     chart = lineChart({ title: 'Average contribution', xInteger: true, xLabel: 'Round', yLabel: 'tokens',
       refs: c.rounds_punish > 0 && c.rounds_no_punish > 0 ? [] : [],
@@ -397,12 +397,12 @@ function projector(st, c) {
   const pubs = st.public;
   let chart = '';
   if (MARKETS.includes(t) && pubs.length) chart = lineChart({ title: 'Market price', xInteger: true, height: 260, series: [{ color: 'demand', dots: true, points: pubs.map((p) => [p.round_no, p[t === 'monopoly' ? 'average_price' : 'market_price']]) }] });
-  if (t === 'pd_live' && pubs.length) chart = lineChart({ title: 'Cooperation rate (%)', xInteger: true, height: 260, series: [{ color: 'demand', dots: true, points: pubs.map((p) => [p.round_no, (p.cooperation_rate ?? 0) * 100]) }] });
+  if (t === 'pd_live' && pubs.length) chart = lineChart({ title: 'Cooperation rate (%)', xInteger: true, height: 260, yMax: 100, series: [{ color: 'demand', dots: true, points: pubs.map((p) => [p.round_no, (p.cooperation_rate ?? 0) * 100]) }] });
   if (t === 'public_goods' && pubs.length) chart = lineChart({ title: 'Average contribution', xInteger: true, height: 260, series: [{ color: 'demand', dots: true, points: pubs.map((p) => [p.round_no, p.average_contribution]) }] });
   if (t === 'commons' && pubs.length) chart = commonsChart(st, c, 260);
   if (t === 'ultimatum' && pubs.length) chart = lineChart({ title: 'Average offer ($)', xInteger: true, height: 260, series: [{ color: 'demand', dots: true, points: pubs.map((p) => [p.round_no, p.average_offer]) }] });
   const prog = st.required?.length ? st.decisions.filter((d) => st.required.includes(d.team_id)).length : 0;
-  return html`<main class="projector">
+  return html`<main class="projector gt-${t}">
     <a class="proj-exit" href="#/teach/game/${s.id}">Exit projector view</a>
     <h1>${s.title}</h1>
     ${s.status === 'lobby' ? html`<div class="proj-join"><p>Go to</p><p class="proj-url">${siteUrl().replace(/^https?:\/\//, '')}</p>

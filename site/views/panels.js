@@ -535,7 +535,7 @@ export function publicBlock(g, c) {
         { name: 'Your price', color: 'supply', dots: true, dashed: true, points: g.results.map((r) => [r.round_no, r.participated ? r.price : null]) },
       ] });
   } else if (t === 'pd_live') {
-    chart = lineChart({ title: 'Share of players cooperating', xInteger: true, xLabel: 'Round', yLabel: '%',
+    chart = lineChart({ title: 'Share of players cooperating', xInteger: true, xLabel: 'Round', yLabel: '%', yMax: 100,
       series: [{ color: 'demand', dots: true, points: pubs.map((p) => [p.round_no, p.cooperation_rate === null ? null : p.cooperation_rate * 100]) }] });
   } else if (t === 'public_goods') {
     chart = lineChart({ title: 'Average contribution', xInteger: true, xLabel: 'Round', yLabel: 'tokens',

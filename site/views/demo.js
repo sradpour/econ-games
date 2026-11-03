@@ -43,7 +43,7 @@ export function renderDemo(route) {
 }
 
 function card(t) {
-  return html`<a class="type-card" href="#/demo/${t}"><strong>${GAME_LABELS[t]}</strong><span>${GAME_INFO[t].short}</span><span class="play-demo">Play demo</span></a>`;
+  return html`<a class="type-card gt-${t}" href="#/demo/${t}"><strong>${GAME_LABELS[t]}</strong><span>${GAME_INFO[t].short}</span><span class="play-demo">Play demo</span></a>`;
 }
 
 on('demo-hard', (el) => setUi('demoOpts', { hard: el.checked }));

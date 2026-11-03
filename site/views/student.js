@@ -90,7 +90,7 @@ export function renderHome() {
       ${sessions[c.id] === undefined ? html`<p class="muted">Loading games…</p>` :
         sessions[c.id].length === 0 ? html`<p class="muted">No games yet. They appear here when your instructor opens one.</p>` :
         html`<ul class="game-list">${sessions[c.id].map((s) => html`<li data-key="${s.id}">
-          <a class="game-row ${s.status}" href="#/play/${s.id}">
+          <a class="game-row ${s.status} gt-${s.game_type}" href="#/play/${s.id}">
             <span class="g-title">${s.title}</span>
             <span class="g-type">${GAME_LABELS[s.game_type]}</span>
             ${statusChip(s.status)}
