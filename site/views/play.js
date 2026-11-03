@@ -7,6 +7,7 @@ import { decisionPanel, lastResult, historyBlock, publicBlock, finalBlock, stage
 import { renderLab } from './lab.js';
 import { demoSubmit, demoPass } from '../lib/demo.js';
 import { startChatPolling, stopChatPolling, commonsLoaded } from './commons.js';
+import { scene } from './scenes.js';
 
 let stopWatch = null;
 let currentId = null;
@@ -82,6 +83,7 @@ function intro(g, cfg) {
   const s = g.session;
   const canJoin = s.status === 'lobby' || (s.status !== 'finished' && s.team_mode === 'teams');
   return html`<section class="intro">
+    ${scene(s.game_type, cfg)}
     ${s.title !== GAME_LABELS[s.game_type] ? html`<p class="kicker">${GAME_LABELS[s.game_type]}</p>` : ''}
     <h1>${s.title}</h1>
     ${statusChip(s.status)}
@@ -145,6 +147,7 @@ function lobby(g, cfg) {
   const s = g.session;
   if (s.team_mode !== 'teams') {
     return html`<section class="waiting">
+      ${scene(s.game_type, cfg)}
       ${s.title !== GAME_LABELS[s.game_type] ? html`<p class="kicker">${GAME_LABELS[s.game_type]}</p>` : ''}
       <h1>${s.title}</h1>
       <div class="pulse" aria-hidden="true"></div>
@@ -226,6 +229,7 @@ function live(g, cfg) {
   const total = roundsTotal(s.game_type, cfg);
   const season = s.game_type === 'commons' && g.assignment?.season;
   return html`
+    ${scene(s.game_type, cfg)}
     <section class="live-head">
       <div class="lh-title">${s.title !== GAME_LABELS[s.game_type] ? html`<p class="kicker">${GAME_LABELS[s.game_type]}</p>` : ''}<h1>${s.title}</h1></div>
       <div class="round-badge"><span class="rb-n">${season || s.round_no}</span><span class="rb-of">${season ? 'season' : total ? `of ${total}` : 'round'}</span></div>
@@ -252,6 +256,7 @@ function live(g, cfg) {
 function finished(g, cfg) {
   const s = g.session;
   return html`<section class="final">
+    ${scene(s.game_type, cfg)}
     ${s.title !== GAME_LABELS[s.game_type] ? html`<p class="kicker">${GAME_LABELS[s.game_type]}</p>` : ''}
     <h1>${s.title}</h1>
     <p class="lede">Game over.</p>

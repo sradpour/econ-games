@@ -4,6 +4,7 @@ import { GAME_LABELS, GAME_INFO, MARKETS, STORIES, normalizeConfig } from '../li
 import { startDemo, demoActive } from '../lib/demo.js';
 import { HOUSE, testStrategy, runTournament } from '../lib/pd.js';
 import { renderPlay } from './play.js';
+import { scene } from './scenes.js';
 import { testTable, tournamentResults } from './lab.js';
 import { go } from '../app.js';
 
@@ -43,7 +44,7 @@ export function renderDemo(route) {
 }
 
 function card(t) {
-  return html`<a class="type-card gt-${t}" href="#/demo/${t}"><strong>${GAME_LABELS[t]}</strong><span>${GAME_INFO[t].short}</span><span class="play-demo">Play demo</span></a>`;
+  return html`<a class="type-card gt-${t}" href="#/demo/${t}">${scene(t, normalizeConfig(t, MARKETS.includes(t) ? STORIES[store.ui.demoOpts?.story || 'bakery'] : {}), 'card-scene')}<strong>${GAME_LABELS[t]}</strong><span>${GAME_INFO[t].short}</span><span class="play-demo">Play demo</span></a>`;
 }
 
 on('demo-hard', (el) => setUi('demoOpts', { hard: el.checked }));

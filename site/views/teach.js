@@ -2,6 +2,7 @@ import { html, store, setState, setUi, on, toast, rerender, plural, confirmed } 
 import { rpc } from '../lib/api.js';
 import { GAME_LABELS, GAME_INFO, SETTINGS, defaultsFor, MARKETS, STORIES, normalizeConfig } from '../lib/games.js';
 import { benchmarks } from '../lib/engine.js';
+import { scene } from './scenes.js';
 import { marginalProduct } from '../lib/engine.js';
 import { go } from '../app.js';
 import { statusChip } from './student.js';
@@ -173,7 +174,7 @@ function costSummary(type, values) {
 
 function typeCard(t, classId) {
   return html`<button class="type-card gt-${t}" data-action="ng-type" data-type="${t}" data-class="${classId}">
-    <strong>${GAME_LABELS[t]}</strong><span>${GAME_INFO[t].short}</span></button>`;
+    ${scene(t, normalizeConfig(t, {}), 'card-scene')}<strong>${GAME_LABELS[t]}</strong><span>${GAME_INFO[t].short}</span></button>`;
 }
 
 function field(s, v) {

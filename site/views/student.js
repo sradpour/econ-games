@@ -2,6 +2,7 @@ import { html, raw, store, setState, setUi, on, toast, rerender } from '../lib/d
 import { rpc, signInWithGoogle, devSignIn, DEV } from '../lib/api.js';
 import { GAME_LABELS } from '../lib/games.js';
 import { refreshMe, go } from '../app.js';
+import { scene } from './scenes.js';
 
 // ---------------------------------------------------------------------------
 // Sign in
@@ -9,14 +10,7 @@ import { refreshMe, go } from '../app.js';
 export function renderSignIn() {
   return html`<main class="page signin">
     <section class="signin-hero">
-      <svg class="hero-graph" viewBox="0 0 400 300" aria-hidden="true">
-        <path class="ax" d="M40 20 V260 H380"/>
-        <path class="d" d="M60 40 C150 110 230 190 360 250"/>
-        <path class="s" d="M60 250 C170 190 250 110 360 40"/>
-        <circle class="eq" cx="208" cy="147" r="9"/>
-        <text x="368" y="252" class="lbl">D</text><text x="368" y="44" class="lbl">S</text>
-        <text x="26" y="20" class="lbl">P</text><text x="384" y="276" class="lbl">Q</text>
-      </svg>
+      <div class="hero-scenes">${scene('competitive', { product: 'loaf' }, 'hs')}${scene('commons', {}, 'hs')}${scene('pd_live', {}, 'hs')}${scene('public_goods', {}, 'hs')}</div>
       <h1>Run the market.<br>Find the price.</h1>
       <p class="lede">Classroom games for introductory economics: compete as firms in perfect competition, oligopoly and monopoly, and play the classic games of strategy with your classmates.</p>
       ${DEV ? html`<form class="card devlogin" data-action="dev-sign-in">
