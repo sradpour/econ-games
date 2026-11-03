@@ -15,7 +15,7 @@ let loading = false, again = false;
 export function enterPlay(id) {
   currentId = id;
   setState({ game: null });
-  store.ui.quiz = null; store.ui.preview = null; store.ui.pg = null;
+  store.ui.quiz = null; store.ui.preview = null; store.ui.pg = null; store.ui.peek = null;
   load();
   stopWatch = watchSession(id, load);
   startChatPolling();

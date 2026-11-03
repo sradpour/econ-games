@@ -8,7 +8,7 @@ import { runTournament, HOUSE } from '../lib/pd.js';
 import { syncClock, go } from '../app.js';
 import { statusChip } from './student.js';
 import { timerBar } from './play.js';
-import { roundsTotal, moveStrip } from './panels.js';
+import { roundsTotal, moveStrip, firmHistory } from './panels.js';
 import { tournamentResults } from './lab.js';
 
 let stop = null, current = null, loading = false, again = false;
@@ -121,6 +121,7 @@ on('ctl', async (el) => {
   if (op === 'start') toast('Starting…');
   setTimeout(load, 600); setTimeout(load, 2000);
 });
+on('ctl-peek', (el) => setUi('ctlPeek', () => (store.ui.ctlPeek === el.dataset.id ? null : el.dataset.id)));
 on('delete-game', async (el) => {
   if (!confirmed(el, 'This deletes the game and all its results permanently.')) return;
   await rpc('delete_session', { p_session: current });
@@ -203,7 +204,15 @@ function livePanels(st, c, teamOf) {
       <section class="card">${raw(chart)}${b ? benchmarkNote(b) : ''}${t === 'public_goods' && c.rounds_punish ? html`<p class="small muted">Punishment starts in round ${c.rounds_no_punish + 1}.</p>` : ''}</section>
       <section class="card"><h2>Standings</h2>
         ${board.length ? html`<table class="board"><thead><tr><th>#</th><th>${s.team_mode === 'teams' ? 'Team' : 'Player'}</th><th>Total</th></tr></thead><tbody>
-          ${board.slice(0, 50).map((r, i) => html`<tr><td>${i + 1}</td><td>${r.name}</td><td>${MARKETS.includes(t) || t === 'commons' ? money(r.total, t === 'commons' ? 2 : 0) : num(r.total, 1)}</td></tr>`)}</tbody></table>` : html`<p class="muted">After the first round.</p>`}
+          ${board.slice(0, 50).map((r, i) => {
+            const open = MARKETS.includes(t) && store.ui.ctlPeek === r.id;
+            return html`<tr class="${open ? 'peek-open' : ''}" data-key="sb-${r.id}"><td>${i + 1}</td>
+              <td>${MARKETS.includes(t) ? html`<button class="link peek" data-action="ctl-peek" data-id="${r.id}" aria-expanded="${open ? 'true' : 'false'}">${r.name}<span class="peek-caret" aria-hidden="true">${open ? '▾' : '▸'}</span></button>` : r.name}</td>
+              <td>${MARKETS.includes(t) || t === 'commons' ? money(r.total, t === 'commons' ? 2 : 0) : num(r.total, 1)}</td></tr>
+              ${open ? html`<tr class="peek-row" data-key="sbp-${r.id}"><td colspan="3">${firmHistory(st.results.filter((x) => x.team_id === r.id).map((x) => ({
+                round_no: x.round_no, price: x.payload.participated ? x.payload.price : null, produced: x.payload.produced, sold: x.payload.sold,
+                branding: x.payload.branding, profit: x.payload.profit })), t, st.public, r.name)}</td></tr>` : ''}`;
+          })}</tbody></table>${MARKETS.includes(t) ? html`<p class="small muted">Click a name to see that firm's choices round by round.</p>` : ''}` : html`<p class="muted">After the first round.</p>`}
       </section>
     </div>
     ${['running', 'paused'].includes(s.status) ? currentDecisions(st, c, teamOf) : ''}

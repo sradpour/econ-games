@@ -483,3 +483,16 @@ a.type-card { color: var(--ink); text-decoration: none; background: var(--surfac
 .ichat-list { list-style: none; margin: 0; padding: 0; max-height: 360px; overflow-y: auto; }
 .ichat-list li { display: grid; gap: 2px; padding: 6px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
 .demo-options-inline { margin: -4px 0 12px; }
+
+/* Click a name in the standings to see that firm's rounds */
+button.peek { font: inherit; color: inherit; text-decoration: underline dotted; text-underline-offset: 3px; padding: 0; display: inline-flex; gap: 6px; align-items: baseline; text-align: left; }
+button.peek:hover { color: var(--demand); }
+.peek-caret { font-size: .8em; color: var(--muted); }
+.board tr.peek-open td { border-bottom-color: transparent; }
+.board .peek-row > td { text-align: left; padding: 4px 0 14px; background: transparent; color: var(--ink); font-weight: 400; width: auto; }
+.peek-body { border: 1px solid var(--line); border-radius: var(--r-sm); padding: 10px; background: var(--paper); }
+.peek-body .mini td, .peek-body .mini th { font-weight: 400; color: var(--ink); width: auto; }
+.peek-body .mini th { color: var(--muted); font-weight: 700; }
+.peek-body .mini tfoot td { font-weight: 700; border-bottom: 0; }
+.peek-body .mini th, .peek-body .mini td { text-align: right; }
+.peek-body .mini th:first-child, .peek-body .mini td:first-child { text-align: left; }

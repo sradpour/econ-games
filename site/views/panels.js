@@ -573,6 +573,7 @@ export function finalBlock(g, c) {
   const myName = g.team?.name;
   const myRow = f?.leaderboard?.find((r) => r.name === myName);
   const isMoney = MARKET.includes(t) || t === 'commons';
+  const canPeek = MARKET.includes(t) && !!g.all_results?.length;
   return html`
     <div class="final-score">
       ${myRow ? html`<div class="place"><span class="place-n">${myRow.rank}</span><span class="place-of">of ${f.leaderboard.length}</span></div>` : ''}
@@ -580,12 +581,42 @@ export function finalBlock(g, c) {
       ${f?.ranked_by === 'average' && myRow ? html`<p class="small muted">Ranked by average points per round played: ${num(myRow.average, 2)}</p>` : ''}</div>
     </div>
     ${f?.leaderboard ? html`<section class="card"><h2>Final standings</h2>
+      ${canPeek ? html`<p class="small muted">Click a name to see that ${g.session.team_mode === 'teams' ? 'team' : 'firm'}'s choices round by round.</p>` : ''}
       <table class="board"><thead><tr><th>#</th><th>Name</th><th>Total</th>${f.ranked_by === 'average' ? html`<th>Per round</th>` : ''}</tr></thead><tbody>
-      ${f.leaderboard.map((r) => html`<tr class="${r.name === myName ? 'me' : ''}"><td>${r.rank}</td><td>${r.name}</td><td>${isMoney ? money(r.total) : num(r.total, 1)}</td>${f.ranked_by === 'average' ? html`<td>${num(r.average, 2)}</td>` : ''}</tr>`)}
+      ${f.leaderboard.map((r) => {
+        const open = canPeek && store.ui.peek === r.name;
+        return html`<tr class="${r.name === myName ? 'me' : ''} ${open ? 'peek-open' : ''}" data-key="lb-${r.name}"><td>${r.rank}</td>
+          <td>${canPeek ? html`<button class="link peek" data-action="peek-firm" data-name="${r.name}" aria-expanded="${open ? 'true' : 'false'}">${r.name}<span class="peek-caret" aria-hidden="true">${open ? '▾' : '▸'}</span></button>` : r.name}</td>
+          <td>${isMoney ? money(r.total) : num(r.total, 1)}</td>${f.ranked_by === 'average' ? html`<td>${num(r.average, 2)}</td>` : ''}</tr>
+          ${open ? html`<tr class="peek-row" data-key="peek-${r.name}"><td colspan="${f.ranked_by === 'average' ? 4 : 3}">
+            ${firmHistory(g.all_results.filter((x) => x.team === r.name), t, g.public, r.name === myName ? 'You' : r.name)}</td></tr>` : ''}`;
+      })}
       </tbody></table></section>` : ''}
     ${g.all_results?.length ? revealed(g, t) : ''}
     ${publicBlock({ ...g, public: g.public.map(({ leaderboard, prices, ...rest }) => rest) }, c)}
     ${historyBlock(g, c)}`;
+}
+
+on('peek-firm', (el) => { store.ui.peek = store.ui.peek === el.dataset.name ? null : el.dataset.name; rerender(); });
+
+/**
+ * One firm's decisions round by round (used in the final standings and on the instructor screen).
+ * rows: [{ round_no, price (null = sat out), produced, sold, branding, profit }]
+ */
+export function firmHistory(rows, t, pubs, label) {
+  if (!rows.length) return html`<p class="muted small">No rounds played.</p>`;
+  rows = rows.slice().sort((a, b) => a.round_no - b.round_no);
+  const key = t === 'monopoly' ? 'average_price' : 'market_price';
+  const chart = lineChart({ title: `${label}: price by round`, xInteger: true, xLabel: 'Round', yLabel: '$', height: 170,
+    series: [
+      { name: label, color: 'supply', dots: true, points: rows.map((r) => [r.round_no, r.price]) },
+      { name: t === 'monopoly' ? 'Class average' : 'Market price', color: 'demand', dashed: true, points: (pubs || []).map((p) => [p.round_no, p[key] ?? null]) },
+    ] });
+  const total = rows.reduce((s, r) => s + Number(r.profit || 0), 0);
+  return html`<div class="peek-body">${rows.some((r) => r.price !== null && r.price !== undefined) ? raw(chart) : html`<p class="small muted">Sat out every round.</p>`}
+    <div class="scroll"><table class="mini"><thead><tr><th>Round</th><th>Price</th>${t !== 'oligopoly' ? html`<th>Made</th>` : ''}<th>Sold</th>${t === 'monopolistic' ? html`<th>Branding</th>` : ''}<th>Profit</th></tr></thead>
+    <tbody>${rows.map((r) => html`<tr><td>${r.round_no}</td><td>${r.price === null || r.price === undefined ? 'sat out' : money(r.price, 2)}</td>${t !== 'oligopoly' ? html`<td>${num(r.produced)}</td>` : ''}<td>${num(r.sold)}</td>${t === 'monopolistic' ? html`<td>${money(r.branding)}</td>` : ''}<td class="${r.profit < 0 ? 'neg' : ''}">${money(r.profit)}</td></tr>`)}</tbody>
+    <tfoot><tr><td>Total</td><td colspan="${t === 'oligopoly' ? 2 : t === 'monopolistic' ? 4 : 3}"></td><td>${money(total)}</td></tr></tfoot></table></div></div>`;
 }
 
 function revealed(g, t) {
