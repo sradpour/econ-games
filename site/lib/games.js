@@ -26,8 +26,13 @@ export const GAME_INFO = {
   competitive: {
     short: 'Many firms sell an identical product. Each round you post a price and choose how much to produce.',
     rules: (c) => [
-      `You run one of many ${c.business === 'bakery' ? 'bakeries' : c.business + 's'} in town, all selling the same ${c.product}. Buyers go to the cheapest sellers first.`,
+      `You run one of many ${c.business === 'bakery' ? 'bakeries' : c.business + 's'} in town, all selling the same ${c.product}.`,
       `Each round choose a price and how many ${c.product_plural} to make. You pay for everything you make, sold or not.`,
+      ...(c.market_rule === 'cheapest' ? ['Buyers go to the cheapest sellers first. When those sell out, the remaining buyers move to the next cheapest.'] : [
+        'All firms together set the market price: the price at which buyers want exactly the ' + c.product_plural + ' offered.',
+        `If your price is at or below the market price, you sell everything you made, at your own price. (If many firms ask the same price and bring more than buyers want, they share those buyers.)`,
+        'If your price is above the market price, buyers go elsewhere and you sell only a small share, less the further above you are.',
+      ]),
       ...productionLines(c),
     ],
   },
@@ -177,7 +182,10 @@ export const SETTINGS = {
   competitive: [...teamSettings, ...marketTiming, ...costs,
     S('demand_a', 'Demand intercept (per firm)', 'number', 'Market demand = number of firms × (a − b × P).', { min: 1, step: 5 }),
     S('demand_b', 'Demand slope (per firm)', 'number', '', { min: 0.1, step: 0.5 }),
-    S('price_noise', 'Price perception noise', 'number', 'Small random mixing of near-equal prices (0.02 = ±2%).', { min: 0, max: 0.2, step: 0.01 }),
+    S('market_rule', 'How buyers choose', 'select', 'One market price: price-taking, as in the textbook. Cheapest first: a firm above the going price can still sell if cheaper firms run out (closer to oligopoly).',
+      { options: [['market', 'One market price: firms priced above it sell little'], ['cheapest', 'Cheapest sellers first']] }),
+    S('above_market_k', 'How fast sales fall above the market price', 'number', 'Share sold = e^(−k × % above). 30: 2% above sells about 55%, 5% above about 22%, 10% above about 5%.', { min: 1, max: 200, step: 5, showIf: (c) => c.market_rule !== 'cheapest' }),
+    S('price_noise', 'Price perception noise', 'number', 'Small random mixing of near-equal prices (0.02 = ±2%).', { min: 0, max: 0.2, step: 0.01, showIf: (c) => c.market_rule === 'cheapest' }),
     S('max_price', 'Highest allowed price ($)', 'number', '', { min: 1 }), S('max_quantity', 'Highest allowed quantity', 'number', '', { min: 1 }),
     ...display],
   monopolistic: [...teamSettings, ...marketTiming, ...costs,
@@ -300,8 +308,13 @@ export function quizFor(gameType, cfg) {
   switch (gameType) {
     case 'competitive':
       return [mcQ(),
-        Q(`You make 80 ${c.product_plural} but price above what buyers will pay. What happens?`, 'You sell nothing and still pay for all 80',
-          ['Unsold units carry over to next round', 'You only pay for the units you sell', 'The game sells them at the market price for you']),
+        c.market_rule === 'cheapest'
+          ? Q(`You make 80 ${c.product_plural} but price above what buyers will pay. What happens?`, 'You sell nothing and still pay for all 80',
+            ['Unsold units carry over to next round', 'You only pay for the units you sell', 'The game sells them at the market price for you'])
+          : Q(`You make 80 ${c.product_plural} and price 10% above the market price. What happens?`, 'You sell only a few and still pay for all 80',
+            ['You sell all 80 at your higher price', 'Unsold units carry over to next round', 'You only pay for the units you sell']),
+        ...(c.market_rule === 'cheapest' ? [] : [Q('You price below the market price. What happens?', 'You sell everything you made, but at your lower price',
+          ['You are paid the market price instead', 'You sell nothing', 'You sell more than you made'])]),
         sitQ(), mpQ()];
     case 'monopolistic':
       return [mcQ(),

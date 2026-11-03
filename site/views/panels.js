@@ -96,7 +96,7 @@ function typicalPriceBox(g, c) {
   return html`<div class="typical"><div><span>Typical price for ${a_an(unit)} ${unit}</span><strong>${money(typical, 2)}</strong></div>
     ${last !== undefined && last !== null ? html`<div><span>Market price last round</span><strong>${money(last, 2)}</strong></div>` : ''}
     <p class="small muted">${g.session.game_type === 'competitive'
-      ? `Many ${c.business === 'bakery' ? 'bakeries' : c.business + 's'} sell the same ${unit}, so buyers won't pay much more than this. Your real choice is how many to make.`
+      ? `Many ${c.business === 'bakery' ? 'bakeries' : c.business + 's'} sell the same ${unit}${c.market_rule === 'cheapest' ? ", so buyers won't pay much more than this" : ': price above the market price and you sell little; price below and you give money away'}. Your real choice is how many to make.`
       : `What similar ${c.product_plural || 'products'} usually sell for. Branding can let you charge more.`}</p></div>`;
 }
 const a_an = (w) => (/^[aeiou]/i.test(String(w)) ? 'an' : 'a');
@@ -472,6 +472,13 @@ export function lastResult(g, c) {
         ${t === 'monopolistic' ? html`<div><dt>Brand strength</dt><dd>${num(r.brand_stock)}</dd></div>` : ''}
         <div class="big"><dt>Profit</dt><dd class="${r.profit < 0 ? 'neg' : 'pos'}">${money(r.profit)}</dd></div>
       </dl>` : html`<p>${r.auto ? 'You missed the deadline, so you sat out.' : 'You sat this round out.'} Cost: <span class="neg">${money(-r.profit)}</span>.</p>`;
+    if (r.participated && r.market_price !== undefined && r.market_price !== null) {
+      const pctSold = r.produced ? Math.round((100 * r.sold) / r.produced) : 0;
+      body = html`<p class="note">Market price: <strong>${money(r.market_price, 2)}</strong>. ${r.above_market
+        ? `Your price was above it, so most buyers went elsewhere: you sold ${pctSold}% of what you made.`
+        : r.price < r.market_price - 0.005 ? `Your price was below it: you sold ${r.sold < r.produced ? `${pctSold}%` : 'everything'}, but could have charged up to ${money(r.market_price, 2)}.`
+        : r.sold < r.produced ? `You were at the market price, but firms at that price brought more than buyers wanted, so you sold ${pctSold}%.` : 'You were at the market price and sold everything.'}</p>${body}`;
+    }
     if (r.participated && r.auto) body = html`<p class="note">You missed the deadline; your previous decision was used.</p>${body}`;
   } else if (t === 'pd_live') {
     body = r.bye ? html`<p>You sat out.</p>` : html`<p class="pd-result"><span class="mv ${r.you}">${r.you}</span> you · partner <span class="mv ${r.them}">${r.them}</span> → <strong>${r.points} points</strong>${r.auto ? ' (no choice made, your last move was repeated)' : ''}</p>`;
@@ -533,7 +540,8 @@ export function publicBlock(g, c) {
   }
   return html`<section class="card public">
     ${raw(chart)}
-    ${MARKET.includes(t) && last.market_price !== undefined ? html`<p class="small">Last round: ${last.active_firms} firms sold ${num(last.total_sold)} units at an average of ${money(last.market_price, 2)}.</p>` : ''}
+    ${MARKET.includes(t) && last.market_price !== undefined ? html`<p class="small">Last round: ${last.active_firms} firms sold ${num(last.total_sold)} units ${last.market_rule === 'market'
+      ? `at a market price of ${money(last.market_price, 2)} (average price actually paid ${money(last.average_selling_price, 2)})` : `at an average of ${money(last.market_price, 2)}`}.</p>` : ''}
     ${t === 'ultimatum' && last.rejection_rate !== undefined && last.rejection_rate !== null ? html`<p class="small">Offers rejected last round: ${pct(last.rejection_rate)}.</p>` : ''}
     ${last.prices ? html`<h3>Prices last round</h3><ul class="prices">${last.prices.map((p) => html`<li>${p.name}<span>${p.price === null ? 'sat out' : money(p.price, 2)}</span></li>`)}</ul>` : ''}
     ${last.leaderboard ? html`<h3>Leaderboard</h3>${leaderboardTable(last.leaderboard, g.team?.name, MARKET.includes(t))}` : ''}

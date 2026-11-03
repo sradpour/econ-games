@@ -56,7 +56,9 @@ export const DEFAULTS = {
   competitive: {
     ...MARKET_COMMON,
     demand_a: 100, demand_b: 5,      // demand per firm: q = a - b*P (market demand scales with number of firms)
-    price_noise: 0.02,               // buyers perceive prices with ±2% noise, so near-ties get mixed
+    market_rule: 'market',           // 'market': one market price, firms above it sell a small share | 'cheapest': buyers go to the cheapest sellers first
+    above_market_k: 30,              // share sold above the market price = exp(-k × fraction above): 2% → 55%, 5% → 22%, 10% → 5%
+    price_noise: 0.02,               // 'cheapest' rule only: buyers perceive prices with ±2% noise, so near-ties get mixed
     max_price: 20, max_quantity: 200,
   },
   monopolistic: {
@@ -153,6 +155,7 @@ export function normalizeConfig(gameType, cfg = {}) {
     out.min_rounds = Math.max(1, Math.round(out.min_rounds));
     out.max_rounds = Math.max(out.min_rounds, Math.round(out.max_rounds));
   }
+  if (gameType === 'competitive' && out.market_rule !== 'cheapest') out.market_rule = 'market';
   if (gameType === 'commons') {
     if (out.variant !== 'simple') out.variant = 'fishery';
     if (out.matching !== 'strangers') out.matching = 'partners';
@@ -243,6 +246,30 @@ function costBreakdown(produced, c, participating) {
     material_cost: round2(produced * (c.material_qty ?? 0) * (c.material_price ?? 0)),
     rent, equipment,
   };
+}
+
+/**
+ * Competitive market with one market price. Each firm faces almost perfectly elastic demand around the
+ * market price P: priced at or below P it sells everything it made (at its own price); priced above P it
+ * sells only the share exp(-k × fraction above P). P is the price at which these sales add up to what buyers
+ * want, D(P). Total sales rise with P and demand falls, so there is exactly one such price (found by bisection).
+ * Returns { price, sales: {id: units} }.
+ */
+export function clearMarket(offers, demandAt, k, maxPrice) {
+  const list = offers.filter((o) => o.quantity > 0);
+  if (!list.length) return { price: null, sales: {} };
+  const share = (p, P) => (p <= P ? 1 : Math.exp(-k * (p - P) / Math.max(P, 1e-6)));
+  const excess = (P) => list.reduce((s, o) => s + o.quantity * share(o.price, P), 0) - demandAt(P);
+  let lo = 0, hi = maxPrice;
+  let price;
+  if (excess(hi) <= 0) price = hi;                     // buyers want more than everything offered: all sell out
+  else {
+    for (let i = 0; i < 80; i++) { const mid = (lo + hi) / 2; if (excess(mid) >= 0) hi = mid; else lo = mid; }
+    price = hi;
+  }
+  const sales = {};
+  for (const o of list) sales[o.id] = Math.floor(o.quantity * share(o.price, price) + 1e-9);
+  return { price: round2(price), sales };
 }
 
 /** Posted-offer market with efficient rationing: cheapest sellers are served first. */
@@ -496,11 +523,15 @@ function resolveMarket(ctx, rng) {
   const N = Math.max(1, state.n_start || teams.length);
   const sold = {};
   let shocks = {};
-
+  let cleared = null;
   if (gameType === 'competitive') {
     const offers = active.map((t) => ({ id: t.id, price: eff[t.id].price, quantity: eff[t.id].quantity }));
     const demandAt = (p) => Math.max(0, N * (c.demand_a - c.demand_b * p));
-    Object.assign(sold, allocateRationing(offers, demandAt, c.price_noise, rng));
+    if (c.market_rule === 'cheapest') Object.assign(sold, allocateRationing(offers, demandAt, c.price_noise, rng));
+    else {
+      cleared = clearMarket(offers, demandAt, c.above_market_k, Math.min(c.max_price, c.demand_a / c.demand_b));
+      Object.assign(sold, cleared.sales);
+    }
   } else if (gameType === 'monopoly') {
     for (const t of active) {
       const shock = c.demand_noise ? gaussian(rng) * c.demand_noise : 0;
@@ -550,6 +581,7 @@ function resolveMarket(ctx, rng) {
         ...costBreakdown(produced, c, true),
       };
       if (gameType === 'monopolistic') { payload.brand_stock = state.brand[t.id]; payload.demand = e.demand; }
+      if (cleared) { payload.market_price = cleared.price; payload.above_market = cleared.price !== null && e.price > cleared.price; }
     } else {
       const fixed = round2(c.fixed_cost * (1 - c.avoidable_share));
       payload = {
@@ -572,7 +604,8 @@ function resolveMarket(ctx, rng) {
   const marketPrice = totalSold ? round2(sellers.reduce((s, r) => s + r.payload.sold * r.payload.price, 0) / totalSold) : null;
   const avgPrice = sellers.length ? round2(sellers.reduce((s, r) => s + r.payload.price, 0) / sellers.length) : null;
   const pub = { round_no, active_firms: sellers.length, total_sold: totalSold, average_price: avgPrice };
-  if (gameType !== 'monopoly') pub.market_price = marketPrice;
+  if (gameType !== 'monopoly') pub.market_price = cleared ? cleared.price : marketPrice;
+  if (cleared) { pub.average_selling_price = marketPrice; pub.market_rule = 'market'; }
   if (c.leaderboard === 'live') pub.leaderboard = leaderboard(teams, state);
   if (c.show_prices) {
     pub.prices = teams.map((t) => ({ name: t.name, price: eff[t.id].participate ? eff[t.id].price : null }))
