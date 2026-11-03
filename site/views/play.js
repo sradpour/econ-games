@@ -84,7 +84,7 @@ function intro(g, cfg) {
   const canJoin = s.status === 'lobby' || (s.status !== 'finished' && s.team_mode === 'teams');
   return html`<section class="intro">
     ${scene(s.game_type, cfg)}
-    ${s.title !== GAME_LABELS[s.game_type] ? html`<p class="kicker">${GAME_LABELS[s.game_type]}</p>` : ''}
+    ${!s.title.startsWith(GAME_LABELS[s.game_type]) ? html`<p class="kicker">${GAME_LABELS[s.game_type]}</p>` : ''}
     <h1>${s.title}</h1>
     ${statusChip(s.status)}
     <p class="lede">${GAME_INFO[s.game_type].short}</p>
@@ -104,7 +104,8 @@ function quiz(g, cfg) {
   if (!store.ui.quiz || store.ui.quiz.session !== s.id) store.ui.quiz = { session: s.id, items: quizFor(s.game_type, cfg), answers: {}, marks: {} };
   const qz = store.ui.quiz;
   return html`<section class="quiz">
-    <p class="kicker">${s.title === GAME_LABELS[s.game_type] ? s.title : `${GAME_LABELS[s.game_type]}: ${s.title}`}</p>
+    ${scene(s.game_type, cfg)}
+    <p class="kicker">${s.title.startsWith(GAME_LABELS[s.game_type]) ? s.title : `${GAME_LABELS[s.game_type]}: ${s.title}`}</p>
     <h1>How this game works</h1>
     ${rulesList(s, cfg)}
     <h2>Quick check</h2>
@@ -148,7 +149,7 @@ function lobby(g, cfg) {
   if (s.team_mode !== 'teams') {
     return html`<section class="waiting">
       ${scene(s.game_type, cfg)}
-      ${s.title !== GAME_LABELS[s.game_type] ? html`<p class="kicker">${GAME_LABELS[s.game_type]}</p>` : ''}
+      ${!s.title.startsWith(GAME_LABELS[s.game_type]) ? html`<p class="kicker">${GAME_LABELS[s.game_type]}</p>` : ''}
       <h1>${s.title}</h1>
       <div class="pulse" aria-hidden="true"></div>
       <p class="lede">You're in. The game starts when your instructor is ready.</p>
@@ -157,7 +158,7 @@ function lobby(g, cfg) {
     </section>`;
   }
   return html`<section class="teams">
-    ${s.title !== GAME_LABELS[s.game_type] ? html`<p class="kicker">${GAME_LABELS[s.game_type]}</p>` : ''}
+    ${!s.title.startsWith(GAME_LABELS[s.game_type]) ? html`<p class="kicker">${GAME_LABELS[s.game_type]}</p>` : ''}
     <h1>${s.title}</h1>
     <p class="lede">Form a team of up to ${s.team_cap}. Anyone without a team when the game starts is placed in one automatically.</p>
     ${teamPicker(g, true)}
@@ -231,7 +232,7 @@ function live(g, cfg) {
   return html`
     ${scene(s.game_type, cfg)}
     <section class="live-head">
-      <div class="lh-title">${s.title !== GAME_LABELS[s.game_type] ? html`<p class="kicker">${GAME_LABELS[s.game_type]}</p>` : ''}<h1>${s.title}</h1></div>
+      <div class="lh-title">${!s.title.startsWith(GAME_LABELS[s.game_type]) ? html`<p class="kicker">${GAME_LABELS[s.game_type]}</p>` : ''}<h1>${s.title}</h1></div>
       <div class="round-badge"><span class="rb-n">${season || s.round_no}</span><span class="rb-of">${season ? 'season' : total ? `of ${total}` : 'round'}</span></div>
     </section>
     ${timerBar(s, s.game_type === 'commons' && s.stage === 'chat' ? 'Chat time left' : 'Time left')}
@@ -257,7 +258,7 @@ function finished(g, cfg) {
   const s = g.session;
   return html`<section class="final">
     ${scene(s.game_type, cfg)}
-    ${s.title !== GAME_LABELS[s.game_type] ? html`<p class="kicker">${GAME_LABELS[s.game_type]}</p>` : ''}
+    ${!s.title.startsWith(GAME_LABELS[s.game_type]) ? html`<p class="kicker">${GAME_LABELS[s.game_type]}</p>` : ''}
     <h1>${s.title}</h1>
     <p class="lede">Game over.</p>
     ${s.game_type === 'pd_tournament' ? renderLab(g, cfg) : finalBlock(g, cfg)}
