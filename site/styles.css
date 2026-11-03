@@ -526,10 +526,9 @@ button.peek:hover { color: var(--demand); }
 @keyframes chase { to { background-position: 9px 50%; } }
 .brand { font: 400 1.6rem var(--font-display); color: #FFD23F; letter-spacing: .02em;
   text-shadow: 0 3px 0 #C2410C, 0 0 14px rgba(255,210,63,.6); -webkit-text-stroke: 1px var(--ink); paint-order: stroke fill; }
-.brand-mark { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; border: 3px solid var(--ink);
-  background: radial-gradient(circle at 35% 30%, #fff 0 18%, transparent 19%), repeating-conic-gradient(var(--pink) 0 22.5deg, #fff 22.5deg 45deg);
-  box-shadow: 0 3px 0 var(--ink); }
-.brand-mark svg { width: 20px; height: 20px; background: #fff; border-radius: 50%; }
+.brand-mark { display: block; width: 44px; height: 44px; filter: drop-shadow(0 3px 0 rgba(0,0,0,.35)); }
+.brand-mark svg { display: block; width: 44px; height: 44px; }
+.signin-logo { display: block; width: 120px; height: 120px; margin: 0 auto 10px; filter: drop-shadow(0 5px 0 rgba(42,27,74,.35)); }
 .mk-d { stroke: var(--demand); } .mk-s { stroke: var(--supply); } .mk-e { fill: var(--hi); stroke: var(--ink); }
 .topnav > a { color: #F1E8FF; font: 400 1.1rem var(--font-display); letter-spacing: .02em; border-radius: 12px; }
 .topnav > a:hover { color: #fff; background: rgba(255,255,255,.12); }

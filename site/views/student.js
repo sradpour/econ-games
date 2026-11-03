@@ -10,6 +10,7 @@ import { scene } from './scenes.js';
 export function renderSignIn() {
   return html`<main class="page signin">
     <section class="signin-hero">
+      <img class="signin-logo" src="logo.svg" alt="">
       <div class="hero-scenes">${scene('competitive', { product: 'loaf' }, 'hs')}${scene('commons', {}, 'hs')}${scene('pd_live', {}, 'hs')}${scene('public_goods', {}, 'hs')}</div>
       <h1>Run the market.<br>Find the price.</h1>
       <p class="lede">Classroom games for introductory economics: compete as firms in perfect competition, oligopoly and monopoly, and play the classic games of strategy with your classmates.</p>
