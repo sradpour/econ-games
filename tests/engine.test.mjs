@@ -34,7 +34,7 @@ test('rationing serves cheapest sellers first and respects demand', () => {
 
 test('competitive market: price-taking at the equilibrium earns the benchmark profit', () => {
   const b = benchmarks('competitive', {}, 10);
-  const { allResults } = run('competitive', { rounds: 2, price_noise: 0 }, teams(10),
+  const { allResults } = run('competitive', { rounds: 2, price_noise: 0, price_range: 0 }, teams(10),
     () => ({ participate: true, price: b.price, quantity: b.quantity_per_firm }));
   for (const r of allResults) {
     assert.equal(r.payload.sold, 60);
@@ -52,7 +52,7 @@ test('competitive market: overpriced firm sells nothing and eats its costs', () 
 
 test('competitive market: fixed market price; above it sells a small share, at or below it sells everything', () => {
   const ts = teams(10);
-  const { allResults, pubs } = run('competitive', { rounds: 1 }, ts, (id) => (
+  const { allResults, pubs } = run('competitive', { rounds: 1, price_range: 0 }, ts, (id) => (
     id === 't1' ? { price: 8.4, quantity: 60 } : id === 't2' ? { price: 7, quantity: 60 } : { price: 8, quantity: 60 }));
   const by = Object.fromEntries(allResults.map((r) => [r.team_id, r.payload]));
   assert.equal(pubs[0].payload.market_price, 8);
@@ -61,18 +61,44 @@ test('competitive market: fixed market price; above it sells a small share, at o
   assert.equal(by.t1.sold, 13);                                       // 5% above: about 22%
   assert.ok(by.t1.above_market);
   // The market price does not move with firms' choices
-  const glut = run('competitive', { rounds: 1 }, ts, () => ({ price: 8, quantity: 150 }));
+  const glut = run('competitive', { rounds: 1, price_range: 0 }, ts, () => ({ price: 8, quantity: 150 }));
   assert.equal(glut.pubs[0].payload.market_price, 8);
   assert.ok(glut.allResults.every((r) => r.payload.sold === 150));
-  const far = run('competitive', { rounds: 1 }, ts, (id) => (id === 't1' ? { price: 9.6, quantity: 60 } : { price: 8, quantity: 60 }));
+  const far = run('competitive', { rounds: 1, price_range: 0 }, ts, (id) => (id === 't1' ? { price: 9.6, quantity: 60 } : { price: 8, quantity: 60 }));
   assert.equal(far.allResults.find((r) => r.team_id === 't1').payload.sold, 0);
   // The instructor can set the market price; benchmarks follow it
-  const set = run('competitive', { rounds: 1, market_price: 10 }, ts, () => ({ price: 10, quantity: 80 }));
+  const set = run('competitive', { rounds: 1, market_price: 10, price_range: 0 }, ts, () => ({ price: 10, quantity: 80 }));
   assert.equal(set.pubs[0].payload.market_price, 10);
   assert.equal(benchmarks('competitive', { market_price: 10 }, 10).quantity_per_firm, 80);
   // The old rule is still available
   const old = run('competitive', { rounds: 1, market_rule: 'cheapest', price_noise: 0 }, ts, (id) => (id === 't1' ? { price: 9.6, quantity: 60 } : { price: 8, quantity: 50 }));
   assert.equal(old.allResults.find((r) => r.team_id === 't1').payload.sold, 60);
+});
+
+test('competitive market: each round has its own round-number market price near the equilibrium', () => {
+  const rng = makeRng(11);
+  const ts = teams(6);
+  const s = startGame('competitive', { rounds: 30 }, ts, rng);
+  let state = s.state, open = s.open;
+  const prices = [];
+  while (open) {
+    const P = open.assignments[0].info.market_price;
+    prices.push(P);
+    assert.ok(open.assignments.every((a) => a.info.market_price === P), 'everyone sees the same price');
+    // price takers: sell everything at the market price, nothing much above it
+    const r = resolveStage({ gameType: 'competitive', config: s.config, state, round_no: open.round_no, stage: 'decide', teams: ts,
+      decisions: Object.fromEntries(ts.map((t, i) => [t.id, { price: i === 0 ? P + 1 : P, quantity: 50 }])) }, rng);
+    assert.equal(r.round_public[0].payload.market_price, P);
+    assert.equal(r.results.find((x) => x.team_id === 't2').payload.sold, 50);
+    assert.ok(r.results.find((x) => x.team_id === 't1').payload.sold < 5);
+    state = r.state; open = r.finished ? null : r.open;
+  }
+  assert.ok(prices.every((p) => p >= 6 && p <= 10 && Math.abs(p * 2 - Math.round(p * 2)) < 1e-9), prices.join(' '));
+  assert.ok(new Set(prices).size >= 5, 'prices vary');
+  assert.ok(prices.every((p, i) => i === 0 || p !== prices[i - 1]), 'no repeats in a row');
+  // range 0: the same price every round
+  const fixed = run('competitive', { rounds: 3, price_range: 0 }, ts, () => ({ price: 8, quantity: 60 }));
+  assert.deepEqual(fixed.pubs.map((p) => p.payload.market_price), [8, 8, 8]);
 });
 
 test('sitting out saves the avoidable share of fixed cost; missing deadline policies', () => {

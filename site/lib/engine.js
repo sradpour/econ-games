@@ -58,6 +58,8 @@ export const DEFAULTS = {
     demand_a: 100, demand_b: 5,      // demand per firm: q = a - b*P (market demand scales with number of firms)
     market_rule: 'fixed',            // 'fixed': a given market price; firms are price takers | 'cheapest': buyers go to the cheapest sellers first
     market_price: 0,                 // 'fixed' rule: the market price; 0 = the competitive equilibrium for these costs
+    price_range: 2,                  // 'fixed' rule: each round's price is drawn within ± this of the market price (0 = same every round)
+    price_step: 0.5,                 // ... in steps of this many dollars, so prices stay round
     above_market_k: 30,              // share sold above the market price = exp(-k × fraction above): 2% → 55%, 5% → 22%, 10% → 5%
     price_noise: 0.02,               // 'cheapest' rule only: buyers perceive prices with ±2% noise, so near-ties get mixed
     max_price: 20, max_quantity: 200,
@@ -406,7 +408,8 @@ export function startGame(gameType, rawConfig, teams, rng = Math.random) {
     if (gameType === 'monopolistic') state.brand = Object.fromEntries(ids.map((id) => [id, 0]));
     const b = benchmarks(gameType, config, ids.length);
     if (b) outputs.push({ kind: 'benchmarks', visibility: 'instructor', payload: b });
-    return { config, state, open: openMarketRound(1, config, ids), outputs };
+    if (gameType === 'competitive' && config.market_rule !== 'cheapest') state.round_prices = {};
+    return { config, state, open: openMarketRound(1, config, ids, state, rng), outputs };
   }
   if (gameType === 'pd_live') {
     state.match = 0; state.byes = {}; state.last_move = {}; state.prev_partner = {};
@@ -486,10 +489,32 @@ function finalOutput(ctx, out) {
 // ---------------------------------------------------------------------------
 // Markets
 
-function openMarketRound(roundNo, config, ids) {
+/** This round's market price in perfect competition: a round number near the base price (or the base price). */
+function drawRoundPrice(c, prev, rng) {
+  const base = fixedMarketPrice(c);
+  const step = c.price_step > 0 ? c.price_step : 0.5;
+  const n = Math.floor((c.price_range + 1e-9) / step);
+  if (!(c.price_range > 0) || n < 1) return round2(base);
+  const center = Math.round(base / step) * step;
+  const lo = c.mc_intercept + step, hi = c.max_price;
+  let p = center;
+  for (let tries = 0; tries < 10; tries++) {
+    p = round2(center + randInt(-n, n, rng) * step);
+    if (p >= lo && p <= hi && p !== prev) break;
+  }
+  return round2(Math.min(hi, Math.max(lo, p)));
+}
+
+function openMarketRound(roundNo, config, ids, state, rng = Math.random) {
+  let info = { round_no: roundNo };
+  if (state?.round_prices) {
+    const price = drawRoundPrice(config, state.round_prices[roundNo - 1], rng);
+    state.round_prices[roundNo] = price;
+    info = { round_no: roundNo, market_price: price };
+  }
   return {
     round_no: roundNo, stage: 'decide', seconds: config.round_seconds, required: ids,
-    assignments: ids.map((id) => ({ team_id: id, info: { round_no: roundNo } })),
+    assignments: ids.map((id) => ({ team_id: id, info })),
   };
 }
 
@@ -527,7 +552,7 @@ function resolveMarket(ctx, rng) {
     const demandAt = (p) => Math.max(0, N * (c.demand_a - c.demand_b * p));
     if (c.market_rule === 'cheapest') Object.assign(sold, allocateRationing(offers, demandAt, c.price_noise, rng));
     else {
-      cleared = clearMarket(offers, fixedMarketPrice(c), c.above_market_k);
+      cleared = clearMarket(offers, state.round_prices?.[round_no] ?? fixedMarketPrice(c), c.above_market_k);
       Object.assign(sold, cleared.sales);
     }
   } else if (gameType === 'monopoly') {
@@ -613,7 +638,7 @@ function resolveMarket(ctx, rng) {
   const finished = round_no >= c.rounds;
   return {
     state, results, round_public: [{ round_no, payload: pub }], assignments: [],
-    ...(finished ? { finished: true } : { open: openMarketRound(round_no + 1, c, teams.map((t) => t.id)) }),
+    ...(finished ? { finished: true } : { open: openMarketRound(round_no + 1, c, teams.map((t) => t.id), state, rng) }),
   };
 }
 

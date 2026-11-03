@@ -29,7 +29,9 @@ export const GAME_INFO = {
       `You run one of many ${c.business === 'bakery' ? 'bakeries' : c.business + 's'} in town, all selling the same ${c.product}.`,
       `Each round choose a price and how many ${c.product_plural} to make. You pay for everything you make, sold or not.`,
       ...(c.market_rule === 'cheapest' ? ['Buyers go to the cheapest sellers first. When those sell out, the remaining buyers move to the next cheapest.'] : [
-        `The market price is ${money2c(fixedMarketPrice(c))} per ${c.product}. Your firm is too small to change it: you are a price taker.`,
+        c.price_range > 0
+          ? `The market price changes from round to round (around ${money2c(fixedMarketPrice(c))} per ${c.product}). You see this round's price before you decide. Your firm is too small to change it: you are a price taker.`
+          : `The market price is ${money2c(fixedMarketPrice(c))} per ${c.product}. Your firm is too small to change it: you are a price taker.`,
         `If your price is at or below the market price, you sell everything you make, at your own price. Pricing below it just gives money away.`,
         'If your price is above the market price, buyers go elsewhere and you sell only a small share, less the further above you are.',
       ]),
@@ -186,6 +188,8 @@ export const SETTINGS = {
     S('market_rule', 'How buyers choose', 'select', 'Fixed market price: firms are price takers, as in the textbook; firms priced above it sell little. Cheapest first: buyers go to the lowest prices, so a firm above the going price can still sell if cheaper firms run out (closer to oligopoly).',
       { options: [['fixed', 'Fixed market price (price takers)'], ['cheapest', 'Cheapest sellers first']] }),
     S('market_price', 'Market price ($)', 'number', '0 = the competitive equilibrium for these costs and demand.', { min: 0, step: 0.25, showIf: (c) => c.market_rule !== 'cheapest' }),
+    S('price_range', 'Price changes each round by up to ±$', 'number', 'Each round gets a random price in this range around the market price. 0 = the same price every round.', { min: 0, step: 0.5, showIf: (c) => c.market_rule !== 'cheapest' }),
+    S('price_step', 'Round prices to the nearest $', 'number', '0.5 gives prices like $7.50, $8.00, $8.50.', { min: 0.05, step: 0.05, showIf: (c) => c.market_rule !== 'cheapest' && Number(c.price_range) > 0 }),
     S('above_market_k', 'How fast sales fall above the market price', 'number', 'Share sold = e^(−k × % above). 30: 2% above sells about 55%, 5% above about 22%, 10% above about 5%.', { min: 1, max: 200, step: 5, showIf: (c) => c.market_rule !== 'cheapest' }),
     S('price_noise', 'Price perception noise', 'number', 'Small random mixing of near-equal prices (0.02 = ±2%).', { min: 0, max: 0.2, step: 0.01, showIf: (c) => c.market_rule === 'cheapest' }),
     S('max_price', 'Highest allowed price ($)', 'number', '', { min: 1 }), S('max_quantity', 'Highest allowed quantity', 'number', '', { min: 1 }),

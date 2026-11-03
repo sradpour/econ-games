@@ -3,6 +3,7 @@ import { html, raw, store, setState, setUi, on, toast, money, num, pct, plural, 
 import { rpc, watchSession } from '../lib/api.js';
 import { GAME_LABELS, normalizeConfig, MARKETS, SETTINGS } from '../lib/games.js';
 import { lineChart, barChart } from '../lib/chart.js';
+import { benchmarks } from '../lib/engine.js';
 import { downloadCsv, flatten } from '../lib/csv.js';
 import { runTournament, HOUSE } from '../lib/pd.js';
 import { syncClock, go } from '../app.js';
@@ -49,6 +50,9 @@ async function load() {
     const id = current;
     const st = await rpc('instructor_state', { p_session: id });
     if (id !== current) return;
+    if (st.session.game_type === 'competitive' && ['running', 'paused'].includes(st.session.status)) {
+      st.round_info = await rpc('instructor_round_info', { p_session: id }).catch(() => null);
+    }
     syncClock(st.server_now);
     setState({ ctrl: st });
     if (st.session.game_type === 'commons' && !store.ui.ichat) loadChat();
@@ -96,6 +100,7 @@ function controls(st, c) {
       <div class="ctrl-status"><div class="round-badge"><span class="rb-n">${s.round_no}</span><span class="rb-of">${total ? `of ${total}` : 'round'}</span></div>
         <div class="grow">${timerBar(s, s.stage === 'punish' ? 'Punishment stage' : s.stage === 'respond' ? 'Responses' : s.stage === 'chat' ? 'Chat closes in' : 'Round closes in')}
         ${s.game_type === 'commons' ? html`<p class="small muted">${commonsWhere(st, c)}</p>` : ''}
+        ${st.round_info?.market_price != null ? roundPriceNote(st.round_info.market_price, c) : ''}
         <p class="big-line">${prog} of ${st.required.length} submitted</p></div></div>
       <div class="row wrap">
         ${s.status === 'running' ? html`<button data-action="ctl" data-op="pause">Pause</button>` : html`<button class="primary" data-action="ctl" data-op="resume">Resume</button>`}
@@ -405,6 +410,7 @@ function projector(st, c) {
       <p class="proj-count">${plural(st.players.length, 'player')} in</p></div>` : ''}
     ${['running', 'paused'].includes(s.status) && t !== 'pd_tournament' ? html`<div class="proj-live">
       <div class="proj-round">Round <strong>${s.round_no}</strong>${total ? ` of ${total}` : ''}</div>
+      ${st.round_info?.market_price != null ? html`<p class="proj-price">Market price this round: <strong>${money(st.round_info.market_price, 2)}</strong></p>` : ''}
       ${timerBar(s)}<p class="proj-count">${prog} of ${st.required.length} submitted</p></div>` : ''}
     <div class="proj-grid">${chart ? html`<div class="card">${raw(chart)}</div>` : ''}
       ${showBoard && board.length ? html`<div class="card"><h2>Leaderboard</h2><ol class="proj-board">${board.map((r) => html`<li><span>${r.name}</span><strong>${MARKETS.includes(t) || t === 'commons' ? money(r.v) : num(r.v, 1)}</strong></li>`)}</ol></div>` : ''}
@@ -463,3 +469,10 @@ on('export-chat', async () => {
     message: m.body, time: new Date(m.at).toLocaleString(),
   })));
 });
+
+// This round's market price in perfect competition, with the best response for the instructor.
+function roundPriceNote(P, c) {
+  const b = benchmarks('competitive', { ...c, market_rule: 'fixed', market_price: P }, 1);
+  return html`<p class="big-line">Market price this round: <strong>${money(P, 2)}</strong>
+    <span class="small muted"> Best response: make ${num(b.quantity_per_firm)} (marginal cost = price), profit ${money(b.profit_per_firm)}.</span></p>`;
+}

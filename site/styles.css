@@ -495,3 +495,5 @@ button.peek:hover { color: var(--demand); }
 .peek-body .mini tfoot td { font-weight: 700; border-bottom: 0; }
 .peek-body .mini th, .peek-body .mini td { text-align: right; }
 .peek-body .mini th:first-child, .peek-body .mini td:first-child { text-align: left; }
+
+.proj-price { font-size: clamp(1.4rem, 3vw, 2.2rem); margin: 6px 0; }

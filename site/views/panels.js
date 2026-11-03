@@ -70,6 +70,7 @@ const typicalCache = new Map();
 function typicalPrice(g, c) {
   const t = g.session.game_type;
   if (t !== 'competitive' && t !== 'monopolistic') return null;
+  if (t === 'competitive' && c.market_rule !== 'cheapest' && g.assignment?.market_price != null) return g.assignment.market_price;
   const n = Math.max(1, g.session.team_mode === 'teams' ? (g.teams?.length || g.session.player_count) : g.session.player_count);
   const key = `${t}|${n}|${JSON.stringify(c)}`;
   if (!typicalCache.has(key)) {
@@ -83,7 +84,8 @@ function startValues(g, c) {
   const d = g.me.decision;
   if (d) return { participate: d.participate !== false, price: d.price, quantity: d.quantity, branding: d.branding ?? 0 };
   const r = lastRes(g);
-  if (r && r.participated) return { participate: true, price: r.price, quantity: r.produced, branding: r.branding ?? 0 };
+  const fixed = g.session.game_type === 'competitive' && c && c.market_rule !== 'cheapest' ? typicalPrice(g, c) : null;
+  if (r && r.participated) return { participate: true, price: fixed ?? r.price, quantity: r.produced, branding: r.branding ?? 0 };
   const typical = c ? typicalPrice(g, c) : null;
   return { participate: true, price: typical ?? '', quantity: '', branding: 0 };
 }
@@ -93,8 +95,10 @@ function typicalPriceBox(g, c) {
   if (typical === null) return '';
   if (g.session.game_type === 'competitive' && c.market_rule !== 'cheapest') {
     const unit = c.product || 'unit';
-    return html`<div class="typical"><div><span>Market price for ${a_an(unit)} ${unit}</span><strong>${money(typical, 2)}</strong></div>
-      <p class="small muted">Set by the market; nothing you do changes it. Price above it and you sell little; price below it and you give money away. Your real choice is how many ${c.product_plural} to make.</p></div>`;
+    const prev = lastPub(g)?.market_price;
+    return html`<div class="typical"><div><span>Market price ${c.price_range > 0 ? 'this round' : `for ${a_an(unit)} ${unit}`}</span><strong>${money(typical, 2)}</strong></div>
+      ${c.price_range > 0 && prev != null ? html`<div><span>Last round</span><strong>${money(prev, 2)}</strong></div>` : ''}
+      <p class="small muted">Set by the market${c.price_range > 0 ? ' and different each round' : ''}; nothing you do changes it. Price above it and you sell little; price below it and you give money away. Your real choice is how many ${c.product_plural} to make.</p></div>`;
   }
   const last = lastPub(g)?.market_price;
   const unit = c.product || 'unit';

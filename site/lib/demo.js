@@ -190,7 +190,7 @@ function botDecide(id, info) {
   const d = demo, c = d.config, bot = d.bots[id], t = d.type;
   if (t === 'competitive') {
     // Price takers: price at (or a touch below) the market price, produce roughly where marginal cost = price.
-    const P = d.bench.price;
+    const P = info.market_price ?? d.bench.price;
     const price = r2(clamp(P * (1 + U(-0.04, 0.01)), c.mc_intercept, c.max_price));
     const q = Math.max(0, Math.round(((P - c.mc_intercept) / c.mc_slope) * U(0.8, 1.2)));
     return { participate: true, price, quantity: q };

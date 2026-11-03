@@ -24,7 +24,7 @@ before(async () => {
   execFileSync('psql', [...PSQL, '-c', 'drop database if exists econ_it', '-c', 'create database econ_it']);
   execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', 'tests/stubs.sql']);
   execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', 'supabase/migrations/0001_schema.sql']);
-  for (const m of ['0003_admin_management', '0004_tournament_progress', '0005_strategy_names', '0006_commons']) {
+  for (const m of ['0003_admin_management', '0004_tournament_progress', '0005_strategy_names', '0006_commons', '0007_round_info']) {
     execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', `supabase/migrations/${m}.sql`]);
   }
   await sql(`insert into private.app_config(key, value) values ('engine_url', 'local-queue') on conflict (key) do update set value = excluded.value`);
@@ -95,11 +95,15 @@ async function runIndividualGame(gameType, config, decide, nStudents = 30) {
 }
 
 test('perfect competition: 30 students, 3 rounds, all submit so rounds end early', async () => {
-  const { final } = await runIndividualGame('competitive', { rounds: 3 }, () => ({ participate: true, price: 8, quantity: 60 }));
+  const { final } = await runIndividualGame('competitive', { rounds: 3 }, (e, g) => ({ participate: true, price: g.assignment.market_price, quantity: 60 }));
+  assert.ok(final.public.every((p) => p.market_price >= 6 && p.market_price <= 10));
   const results = final.results;
   assert.equal(results.length, 90);
   assert.ok(results.every((r) => r.payload.sold > 50));
   assert.equal(final.outputs.benchmarks.price, 8);
+  const info = await as('siavash.radpour@stockton.edu')('instructor_round_info', { p_session: final.session.id });
+  assert.ok(info.market_price >= 6 && info.market_price <= 10);
+  await fails(as(students[0])('instructor_round_info', { p_session: final.session.id }), /Not your game/);
   assert.equal(final.outputs.final.leaderboard.length, 30);
 });
 
