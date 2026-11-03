@@ -38,7 +38,6 @@ export function renderDemo(route) {
       <div class="type-grid">${MARKETS.map(card)}</div>
     </section>
     <h2 class="group-h">Games of strategy</h2>
-    <div class="row wrap demo-options-inline"><label class="switch"><input type="checkbox" data-change="demo-simple-commons" ${o.simpleCommons ? 'checked' : ''}> <span>Tragedy of the commons: simple extract-or-wait version</span></label></div>
     <div class="type-grid">${STRATEGY_GAMES.map(card)}</div>
   </main>`;
 }
@@ -49,7 +48,11 @@ function card(t) {
 
 on('demo-hard', (el) => setUi('demoOpts', { hard: el.checked }));
 on('demo-story', (el) => setUi('demoOpts', { story: el.value }));
-on('demo-simple-commons', (el) => setUi('demoOpts', { simpleCommons: el.checked }));
+on('demo-variant', (el) => {
+  store.ui.demoOpts = { ...(store.ui.demoOpts || {}), simpleCommons: el.dataset.variant === 'simple' };
+  startDemo('commons', demoOptions('commons'));
+  window.scrollTo(0, 0);
+});
 on('demo-restart', () => {
   const t = store.game?.session?.game_type;
   if (t) { startDemo(t, demoOptions(t)); window.scrollTo(0, 0); }

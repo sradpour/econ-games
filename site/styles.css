@@ -482,7 +482,6 @@ a.type-card { color: var(--ink); text-decoration: none; background: var(--surfac
 .chat-form input { flex: 1; min-width: 0; }
 .ichat-list { list-style: none; margin: 0; padding: 0; max-height: 360px; overflow-y: auto; }
 .ichat-list li { display: grid; gap: 2px; padding: 6px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
-.demo-options-inline { margin: -4px 0 12px; }
 
 /* Click a name in the standings to see that firm's rounds */
 button.peek { font: inherit; color: inherit; text-decoration: underline dotted; text-underline-offset: 3px; padding: 0; display: inline-flex; gap: 6px; align-items: baseline; text-align: left; }

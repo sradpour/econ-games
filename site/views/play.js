@@ -60,7 +60,11 @@ export function renderPlay() {
   return html`<main class="page play gt-${s.game_type}">
     ${g.demo ? html`<a class="back" href="#/demo">← All demos</a>
       <div class="demo-banner"><span>Demo: you're playing against computer players. There's no timer and nothing is saved.</span>
-        <button class="link" data-action="demo-restart">Start over</button></div>` : html`<a class="back" href="#/">← ${s.class_name}</a>`}
+        <button class="link" data-action="demo-restart">Start over</button></div>
+      ${s.game_type === 'commons' ? html`<div class="presets demo-variant"><span class="small muted">Version:</span>
+        <button class="${cfg.variant !== 'simple' ? 'chosen' : ''}" data-action="demo-variant" data-variant="fishery">Fishery: choose how many fish to catch</button>
+        <button class="${cfg.variant === 'simple' ? 'chosen' : ''}" data-action="demo-variant" data-variant="simple">Simple: extract or wait</button>
+        <p class="small muted">Switching starts the demo over.</p></div>` : ''}` : html`<a class="back" href="#/">← ${s.class_name}</a>`}
     ${!g.joined ? intro(g, cfg)
       : s.status === 'finished' ? finished(g, cfg)
       : !g.me.passed_check ? quiz(g, cfg)

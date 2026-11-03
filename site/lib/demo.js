@@ -36,6 +36,7 @@ export function startDemo(gameType, options = {}) {
     chat: [], chatId: 0, chatOpened: null,
   };
   for (const o of g.outputs) if (o.visibility === 'students') demo.outputs[o.kind] = o.payload;
+  store.ui.quiz = null; // the check is built from this demo's settings
   autoAdvance();
   publish();
 }
