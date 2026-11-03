@@ -1,6 +1,7 @@
 import { html, store, setState, setUi, on, toast, rerender, plural, confirmed } from '../lib/dom.js';
 import { rpc } from '../lib/api.js';
 import { GAME_LABELS, GAME_INFO, SETTINGS, defaultsFor, MARKETS, STORIES, normalizeConfig } from '../lib/games.js';
+import { benchmarks } from '../lib/engine.js';
 import { marginalProduct } from '../lib/engine.js';
 import { go } from '../app.js';
 import { statusChip } from './student.js';
@@ -166,7 +167,8 @@ function costSummary(type, values) {
   const c = normalizeConfig(type, values);
   const q = 4 * c.productivity_half;
   return html`<div class="note small">With these settings, marginal cost = ${'$'}${c.mc_intercept.toFixed(2)} + ${c.mc_slope.toFixed(3)} × quantity.
-    At ${q} ${c.product_plural}, one more hour of labor adds ${marginalProduct(q, c).toFixed(2)} ${c.product_plural}, so the next ${c.product} costs ${'$'}${(c.mc_intercept + c.mc_slope * q).toFixed(2)}.</div>`;
+    At ${q} ${c.product_plural}, one more hour of labor adds ${marginalProduct(q, c).toFixed(2)} ${c.product_plural}, so the next ${c.product} costs ${'$'}${(c.mc_intercept + c.mc_slope * q).toFixed(2)}.
+    ${type === 'competitive' && c.market_rule !== 'cheapest' ? (() => { const b = benchmarks('competitive', c, 1); return `Market price: ${'$'}${b.price.toFixed(2)}${c.market_price > 0 ? '' : ' (the competitive equilibrium)'}. The best a firm can do is make about ${Math.round(b.quantity_per_firm)} ${c.product_plural} (marginal cost = price), for a profit of ${'$'}${b.profit_per_firm.toFixed(0)} per round.`; })() : ''}</div>`;
 }
 
 function typeCard(t, classId) {

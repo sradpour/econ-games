@@ -1,5 +1,5 @@
 // Game catalogue: descriptions, instructor settings and comprehension checks.
-import { DEFAULTS, GAME_LABELS, normalizeConfig, variableCost, marginalProduct } from './engine.js';
+import { DEFAULTS, GAME_LABELS, normalizeConfig, variableCost, marginalProduct, fixedMarketPrice } from './engine.js';
 
 export { GAME_LABELS, normalizeConfig };
 export const MARKETS = ['competitive', 'monopolistic', 'oligopoly', 'monopoly'];
@@ -29,8 +29,8 @@ export const GAME_INFO = {
       `You run one of many ${c.business === 'bakery' ? 'bakeries' : c.business + 's'} in town, all selling the same ${c.product}.`,
       `Each round choose a price and how many ${c.product_plural} to make. You pay for everything you make, sold or not.`,
       ...(c.market_rule === 'cheapest' ? ['Buyers go to the cheapest sellers first. When those sell out, the remaining buyers move to the next cheapest.'] : [
-        'All firms together set the market price: the price at which buyers want exactly the ' + c.product_plural + ' offered.',
-        `If your price is at or below the market price, you sell everything you made, at your own price. (If many firms ask the same price and bring more than buyers want, they share those buyers.)`,
+        `The market price is ${money2c(fixedMarketPrice(c))} per ${c.product}. Your firm is too small to change it: you are a price taker.`,
+        `If your price is at or below the market price, you sell everything you make, at your own price. Pricing below it just gives money away.`,
         'If your price is above the market price, buyers go elsewhere and you sell only a small share, less the further above you are.',
       ]),
       ...productionLines(c),
@@ -142,6 +142,7 @@ export const GAME_INFO = {
 };
 
 const money2 = (v) => { const n = Number(v); return `$${n.toLocaleString(undefined, Number.isInteger(n) ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; };
+const money2c = (v) => `$${(Math.round(Number(v) * 100) / 100).toFixed(2)}`;
 const pctTxt = (v) => `${Math.round(Number(v) * 100)}%`;
 
 // ---------------------------------------------------------------------------
@@ -182,8 +183,9 @@ export const SETTINGS = {
   competitive: [...teamSettings, ...marketTiming, ...costs,
     S('demand_a', 'Demand intercept (per firm)', 'number', 'Market demand = number of firms × (a − b × P).', { min: 1, step: 5 }),
     S('demand_b', 'Demand slope (per firm)', 'number', '', { min: 0.1, step: 0.5 }),
-    S('market_rule', 'How buyers choose', 'select', 'One market price: price-taking, as in the textbook. Cheapest first: a firm above the going price can still sell if cheaper firms run out (closer to oligopoly).',
-      { options: [['market', 'One market price: firms priced above it sell little'], ['cheapest', 'Cheapest sellers first']] }),
+    S('market_rule', 'How buyers choose', 'select', 'Fixed market price: firms are price takers, as in the textbook; firms priced above it sell little. Cheapest first: buyers go to the lowest prices, so a firm above the going price can still sell if cheaper firms run out (closer to oligopoly).',
+      { options: [['fixed', 'Fixed market price (price takers)'], ['cheapest', 'Cheapest sellers first']] }),
+    S('market_price', 'Market price ($)', 'number', '0 = the competitive equilibrium for these costs and demand.', { min: 0, step: 0.25, showIf: (c) => c.market_rule !== 'cheapest' }),
     S('above_market_k', 'How fast sales fall above the market price', 'number', 'Share sold = e^(−k × % above). 30: 2% above sells about 55%, 5% above about 22%, 10% above about 5%.', { min: 1, max: 200, step: 5, showIf: (c) => c.market_rule !== 'cheapest' }),
     S('price_noise', 'Price perception noise', 'number', 'Small random mixing of near-equal prices (0.02 = ±2%).', { min: 0, max: 0.2, step: 0.01, showIf: (c) => c.market_rule === 'cheapest' }),
     S('max_price', 'Highest allowed price ($)', 'number', '', { min: 1 }), S('max_quantity', 'Highest allowed quantity', 'number', '', { min: 1 }),

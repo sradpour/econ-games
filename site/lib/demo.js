@@ -189,9 +189,10 @@ const lastPublic = () => demo.public[demo.public.length - 1]?.payload;
 function botDecide(id, info) {
   const d = demo, c = d.config, bot = d.bots[id], t = d.type;
   if (t === 'competitive') {
-    const ref = lastPublic()?.market_price ?? d.bench.price * (1 + U(-0.35, 0.35));
-    const price = r2(clamp(ref * (1 + bot.bias * 0.5 + U(-0.06, 0.06)), c.mc_intercept, c.max_price));
-    const q = Math.max(0, Math.round(((price - c.mc_intercept) / c.mc_slope) * U(0.85, 1.1)));
+    // Price takers: price at (or a touch below) the market price, produce roughly where marginal cost = price.
+    const P = d.bench.price;
+    const price = r2(clamp(P * (1 + U(-0.04, 0.01)), c.mc_intercept, c.max_price));
+    const q = Math.max(0, Math.round(((P - c.mc_intercept) / c.mc_slope) * U(0.8, 1.2)));
     return { participate: true, price, quantity: q };
   }
   if (t === 'oligopoly' || t === 'monopolistic') {

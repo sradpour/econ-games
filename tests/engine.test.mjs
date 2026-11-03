@@ -50,31 +50,26 @@ test('competitive market: overpriced firm sells nothing and eats its costs', () 
   assert.ok(t1.profit < -300);
 });
 
-test('competitive market: one market price; above it sells a small share, below it sells everything', () => {
+test('competitive market: fixed market price; above it sells a small share, at or below it sells everything', () => {
   const ts = teams(10);
   const { allResults, pubs } = run('competitive', { rounds: 1 }, ts, (id) => (
     id === 't1' ? { price: 8.4, quantity: 60 } : id === 't2' ? { price: 7, quantity: 60 } : { price: 8, quantity: 60 }));
   const by = Object.fromEntries(allResults.map((r) => [r.team_id, r.payload]));
-  // supply at <= $8 is 540 < demand 600, so the market price rises to where demand = 540 (or the $8.40 seller is marginal)
-  const P = pubs[0].payload.market_price;
-  assert.ok(P >= 8 && P <= 8.4, `market price ${P}`);
-  assert.equal(by.t2.sold, 60); assert.equal(by.t2.price, 7);
+  assert.equal(pubs[0].payload.market_price, 8);
+  assert.equal(by.t2.sold, 60); assert.equal(by.t2.revenue, 420);   // below: sells everything at its own (lower) price
   assert.equal(by.t3.sold, 60);
-  assert.ok(by.t1.sold < 60);
-  // Far above the market price: almost nothing
-  const far = run('competitive', { rounds: 1 }, ts, (id) => (id === 't1' ? { price: 9.6, quantity: 60 } : { price: 8, quantity: 67 }));
-  assert.equal(far.pubs[0].payload.market_price, 8);
-  const t1 = far.allResults.find((r) => r.team_id === 't1').payload;
-  assert.ok(t1.sold <= 3 && t1.above_market, `sold ${t1.sold}`);
-  // Everyone at $9 with too much output: the market price settles just below $9 and each sells what buyers want
-  const glut = run('competitive', { rounds: 1 }, ts, () => ({ price: 9, quantity: 70 }));
-  assert.ok(glut.pubs[0].payload.market_price < 9 && glut.pubs[0].payload.market_price > 8.8);
-  assert.ok(glut.allResults.every((r) => r.payload.sold >= 54 && r.payload.sold <= 56));
-  // Total sales never exceed what buyers want at the market price
-  const spread = run('competitive', { rounds: 1 }, teams(12), (id) => { const p = 6 + Number(id.slice(1)) * 0.4; return { price: p, quantity: Math.round((p - 2) / 0.1) }; });
-  const P2 = spread.pubs[0].payload.market_price;
-  const total = spread.allResults.reduce((s, r) => s + r.payload.sold, 0);
-  assert.ok(total <= 12 * (100 - 5 * P2) + 1, `${total} sold at ${P2}`);
+  assert.equal(by.t1.sold, 13);                                       // 5% above: about 22%
+  assert.ok(by.t1.above_market);
+  // The market price does not move with firms' choices
+  const glut = run('competitive', { rounds: 1 }, ts, () => ({ price: 8, quantity: 150 }));
+  assert.equal(glut.pubs[0].payload.market_price, 8);
+  assert.ok(glut.allResults.every((r) => r.payload.sold === 150));
+  const far = run('competitive', { rounds: 1 }, ts, (id) => (id === 't1' ? { price: 9.6, quantity: 60 } : { price: 8, quantity: 60 }));
+  assert.equal(far.allResults.find((r) => r.team_id === 't1').payload.sold, 0);
+  // The instructor can set the market price; benchmarks follow it
+  const set = run('competitive', { rounds: 1, market_price: 10 }, ts, () => ({ price: 10, quantity: 80 }));
+  assert.equal(set.pubs[0].payload.market_price, 10);
+  assert.equal(benchmarks('competitive', { market_price: 10 }, 10).quantity_per_firm, 80);
   // The old rule is still available
   const old = run('competitive', { rounds: 1, market_rule: 'cheapest', price_noise: 0 }, ts, (id) => (id === 't1' ? { price: 9.6, quantity: 60 } : { price: 8, quantity: 50 }));
   assert.equal(old.allResults.find((r) => r.team_id === 't1').payload.sold, 60);
