@@ -6,7 +6,10 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const FALLBACK_MODELS = ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash-lite'];
+// Fast, cheap models first. Google retires model names from time to time; if every name here is gone,
+// the function asks Google which Flash models this key can use (see discoverModels).
+const FALLBACK_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.1-flash-lite',
+  'gemini-flash-lite-latest', 'gemini-flash-latest'];
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -36,14 +39,36 @@ Write exactly one function with this signature:
 Respond with JSON only: {"code": "...", "explanation": "...", "assumptions": ["..."]}
 "explanation" is a short numbered list in plain English (no code words) describing exactly what the function does, so the student can check it matches what they meant.`;
 
-const PER_MODEL_TIMEOUT_MS = 25000;
-const TOTAL_BUDGET_MS = 70000;
+const PER_MODEL_TIMEOUT_MS = 22000;
+const TOTAL_BUDGET_MS = 75000;
 
-async function callGemini(key: string, model: string, prompt: string, noThinking: boolean) {
+// Translation needs little "thinking", and less thinking is much faster.
+// Gemini 3 and later take a thinking level; older models took a token budget.
+const lowThinking = (model: string) =>
+  /^gemini-(2\.|1\.)/.test(model) ? { thinkingBudget: 0 } : { thinkingLevel: 'minimal' };
+
+async function discoverModels(key: string): Promise<string[]> {
+  try {
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', { headers: { 'x-goog-api-key': key } });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const names: string[] = (data?.models ?? [])
+      .filter((m: { supportedGenerationMethods?: string[] }) => m.supportedGenerationMethods?.includes('generateContent'))
+      .map((m: { name: string }) => String(m.name).replace(/^models\//, ''))
+      .filter((n: string) => /flash/.test(n) && !/(image|tts|audio|live|embedding|preview|exp)/.test(n));
+    const version = (n: string) => Number(n.match(/gemini-(\d+(?:\.\d+)?)/)?.[1] ?? 0);
+    // Newest first; Flash-Lite before Flash within a version (faster).
+    return names.sort((a, b) => version(b) - version(a) || Number(/lite/.test(b)) - Number(/lite/.test(a)));
+  } catch {
+    return [];
+  }
+}
+
+async function callGemini(key: string, model: string, prompt: string, thinking: Record<string, unknown> | null) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), PER_MODEL_TIMEOUT_MS);
   const generationConfig: Record<string, unknown> = { responseMimeType: 'application/json', temperature: 0.2 };
-  if (noThinking) generationConfig.thinkingConfig = { thinkingBudget: 0 }; // translation needs no "thinking"; much faster
+  if (thinking) generationConfig.thinkingConfig = thinking;
   const started = Date.now();
   try {
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
@@ -104,17 +129,36 @@ Deno.serve(async (req) => {
 
   const errors: string[] = [];
   const startedAll = Date.now();
-  for (const model of [...new Set(models)]) {
+  const queue = [...new Set(models)];
+  const tried = new Set<string>();
+  let discovered = false;
+  let busy = false;
+  while (queue.length) {
+    const model = queue.shift()!;
+    if (tried.has(model)) continue;
+    tried.add(model);
     if (Date.now() - startedAll > TOTAL_BUDGET_MS - PER_MODEL_TIMEOUT_MS) break;
-    let r = await callGemini(key, model, prompt, true);
-    // Some models reject the "no thinking" option; retry once without it.
-    if (!r.ok && r.status === 400 && /thinking/i.test(r.message)) r = await callGemini(key, model, prompt, false);
+    let r = await callGemini(key, model, prompt, lowThinking(model));
+    // Some models don't offer the "minimal" level (e.g. Gemini 3.8 Flash): step up to "low", then to the model's default.
+    const rejectsThinking = () => !r.ok && r.status === 400 && /thinking/i.test(r.message);
+    if (rejectsThinking() && !/^gemini-(2\.|1\.)/.test(model)) r = await callGemini(key, model, prompt, { thinkingLevel: 'low' });
+    if (rejectsThinking()) r = await callGemini(key, model, prompt, null);
     if (!r.ok) {
       errors.push(`${model}: ${r.message}`);
-      if (r.status === 401 || r.status === 403 || /API key/i.test(r.message)) {
+      if (r.status === 401 || (r.status === 403 && /API key|permission/i.test(r.message)) || /API key not valid/i.test(r.message)) {
         return json({ error: `Gemini rejected the API key: ${r.message}. Ask your instructor to check the key on the Admin page.` }, 502);
       }
-      if (r.status === 429) return json({ error: `The AI translator hit Google's free limit (${r.message}). Wait a minute and try again.` }, 429);
+      if (r.status === 429 && !/high demand|overloaded/i.test(r.message)) {
+        return json({ error: `The AI translator hit Google's free limit (${r.message}). Wait a minute and try again.` }, 429);
+      }
+      if (r.status === 503 || r.status === 504 || /high demand|overloaded/i.test(r.message)) busy = true;
+      // A retired or unknown model name: ask Google which models this key can use, once.
+      if (r.status === 404 && !discovered && queue.every((m) => tried.has(m) || /latest$/.test(m))) {
+        discovered = true;
+        const found = (await discoverModels(key)).filter((m) => !tried.has(m));
+        console.log('discovered models', found.slice(0, 8));
+        queue.unshift(...found.slice(0, 4));
+      }
       continue;
     }
     try {
@@ -131,5 +175,8 @@ Deno.serve(async (req) => {
     }
   }
   console.log('translate failed', errors);
+  if (busy) {
+    return json({ error: 'Google\'s AI service is busy right now, so the translator could not answer. Wait a minute and press Translate again.', details: errors }, 503);
+  }
   return json({ error: `The AI translator could not produce a strategy. Details: ${errors.join(' | ') || 'no models tried'}` }, 502);
 });
