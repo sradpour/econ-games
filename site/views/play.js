@@ -227,6 +227,19 @@ function totalSeconds(s) {
 function live(g, cfg) {
   const s = g.session;
   if (s.game_type === 'pd_tournament') return renderLab(g, cfg);
+  if (s.game_type === 'costs') {
+    return html`
+      ${scene(s.game_type, cfg)}
+      <section class="live-head">
+        <div class="lh-title">${!s.title.startsWith(GAME_LABELS[s.game_type]) ? html`<p class="kicker">${GAME_LABELS[s.game_type]}</p>` : ''}<h1>${s.title}</h1></div>
+      </section>
+      ${timerBar(s)}
+      ${s.team_mode === 'teams' && g.team ? html`<div class="teamstrip"><strong>${g.team.name}</strong>
+        <span>${g.team.members.map((m) => m.name).join(', ')} · anyone can edit</span></div>` : ''}
+      ${s.status === 'paused' ? html`<p class="note">The game is paused. Your saved work stays in.</p>` : ''}
+      ${decisionPanel(g, cfg)}
+      <details class="rules-drawer"><summary>Rules</summary>${rulesList(s, cfg)}</details>`;
+  }
   const total = roundsTotal(s.game_type, cfg);
   const season = s.game_type === 'commons' && g.assignment?.season;
   return html`

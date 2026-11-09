@@ -13,7 +13,7 @@ const fmt = (v) => (Math.abs(v) >= 1000 ? `${Math.round(v / 100) / 10}k` : Numbe
  * series: [{ name, points: [[x, y], ...], color: 'demand'|'supply'|'ink'|'muted'|'mark', dashed?, dots? }]
  * refs:   [{ y, label }] horizontal reference lines
  */
-export function lineChart({ series, refs = [], xLabel = '', yLabel = '', height = 220, xInteger = false, title = '', yMax = null }) {
+export function lineChart({ series, refs = [], xLabel = '', yLabel = '', height = 220, xInteger = false, title = '', yMax = null, xTicks = null }) {
   const W = 560, H = height, L = 46, R = 14, T = yLabel ? 28 : 14, B = 34;
   const pts = series.flatMap((s) => s.points).filter((p) => p[1] !== null && p[1] !== undefined && Number.isFinite(p[1]));
   if (!pts.length) return raw(`<div class="chart-empty">No data yet</div>`);
@@ -27,7 +27,7 @@ export function lineChart({ series, refs = [], xLabel = '', yLabel = '', height 
   const sy = (y) => T + (1 - (y - y0) / (y1 - y0)) * (H - T - B);
   const ticks = 4;
   const yTicks = Array.from({ length: ticks + 1 }, (_, i) => y0 + ((y1 - y0) * i) / ticks);
-  const xTickVals = xInteger
+  const xTickVals = xTicks ? xTicks.filter((v) => v >= x0 && v <= x1) : xInteger
     ? Array.from(new Set(xs)).sort((a, b) => a - b).filter((v, i, arr) => arr.length <= 12 || i % Math.ceil(arr.length / 12) === 0)
     : Array.from({ length: 5 }, (_, i) => x0 + ((x1 - x0) * i) / 4);
   const path = (s) => {

@@ -93,10 +93,27 @@ function pie() {
     <g ${sw} fill="#FFD23F"><circle cx="40" cy="80" r="10"/><circle cx="282" cy="80" r="10"/></g>`;
 }
 
+// Costs and supply: a long receipt, a calculator, and a chalkboard with a rising supply curve.
+function books(c) {
+  const lines = [0, 1, 2, 3, 4, 5].map((i) => `<path d="M${46} ${30 + i * 9} h${i % 2 ? 34 : 44}" stroke="#B9A9D9" stroke-width="3" stroke-linecap="round"/><text x="104" y="${33 + i * 9}" font-size="7" font-family="Lilita One, sans-serif" fill="${O}" text-anchor="end">$${[150, 60, 120, 20, 80, 3][i]}</text>`).join('');
+  const keys = Array.from({ length: 12 }, (_, i) => `<rect x="${238 + (i % 3) * 14}" y="${50 + Math.floor(i / 3) * 11}" width="10" height="7" rx="2" fill="${['#FF3D8B', '#FFD23F', '#22B8F0', '#3DDC84'][i % 4]}" stroke="${O}" stroke-width="1.6"/>`).join('');
+  return `${sky('#FFE9C7', '#FFF7E3')}
+    <path d="M0 100 H320 V120 H0 Z" fill="#C98A4B" ${sw}/>
+    <g transform="rotate(-4 75 60)"><path d="M36 14 H112 V100 l-6 -5 -6 5 -6 -5 -6 5 -6 -5 -6 5 -6 -5 -6 5 -6 -5 -6 5 -6 -5 -6 5 Z" fill="#fff" ${sw}/>
+      <text x="74" y="25" font-size="8" font-family="Lilita One, sans-serif" fill="${O}" text-anchor="middle">${String(c.business || 'BILLS').toUpperCase().slice(0, 12)}</text>${lines}</g>
+    <g ${sw}><rect x="130" y="16" width="92" height="74" rx="6" fill="#1F6B45"/><rect x="136" y="22" width="80" height="62" rx="3" fill="#2E8B57"/></g>
+    <path d="M146 76 V30 M146 76 H208" stroke="#E6F6DF" stroke-width="2.4" stroke-linecap="round"/>
+    <path d="M150 74 H160 V64 H170 V56 H180 V46 H190 V38 H202" fill="none" stroke="#FFD23F" stroke-width="3.4" stroke-linejoin="round"/>
+    <text x="196" y="34" font-size="9" font-family="Lilita One, sans-serif" fill="#FFD23F">S</text>
+    <g ${sw}><rect x="230" y="28" width="56" height="70" rx="7" fill="#9B5CF6"/><rect x="237" y="34" width="42" height="12" rx="2" fill="#DFF7E2"/></g>
+    <text x="275" y="44" font-size="8" font-family="Lilita One, sans-serif" fill="${O}" text-anchor="end">MC=P</text>${keys}
+    <g ${sw} fill="#FFD23F"><circle cx="300" cy="104" r="7"/><circle cx="20" cy="106" r="6"/></g>`;
+}
+
 const SCENES = {
   competitive: (c) => market('competitive', c.product), monopolistic: (c) => market('monopolistic', c.product),
   oligopoly: (c) => market('oligopoly', c.product), monopoly: (c) => market('monopoly', c.product),
-  pd_live: cards, pd_tournament: trophy, public_goods: jar, ultimatum: pie, commons: pond,
+  pd_live: cards, pd_tournament: trophy, public_goods: jar, ultimatum: pie, commons: pond, costs: books,
 };
 
 /** A cartoon banner for a game. */

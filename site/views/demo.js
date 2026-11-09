@@ -1,6 +1,6 @@
 // Demo page: pick a game and play it alone against simulated players. No sign-in, nothing saved.
 import { html, store, setUi, on, rerender, toast } from '../lib/dom.js';
-import { GAME_LABELS, GAME_INFO, MARKETS, STORIES, normalizeConfig } from '../lib/games.js';
+import { GAME_LABELS, GAME_INFO, MARKETS, STORIES, COST_STORIES, normalizeConfig } from '../lib/games.js';
 import { startDemo, demoActive } from '../lib/demo.js';
 import { HOUSE, testStrategy, runTournament } from '../lib/pd.js';
 import { renderPlay } from './play.js';
@@ -18,6 +18,7 @@ export function enterDemo(type) {
 function demoOptions(type) {
   const o = store.ui.demoOpts || {};
   if (type === 'commons') return { variant: o.simpleCommons ? 'simple' : 'fishery' };
+  if (type === 'costs') return { story: o.story || 'bakery', ...COST_STORIES[o.story || 'bakery'] };
   if (!MARKETS.includes(type)) return {};
   return { difficulty: o.hard ? 'hard' : 'normal', story: o.story || 'bakery', ...STORIES[o.story || 'bakery'] };
 }
@@ -36,7 +37,7 @@ export function renderDemo(route) {
         <label class="switch"><input type="checkbox" data-change="demo-hard" ${o.hard ? 'checked' : ''}> <span>Hard mode: work out your own cost table</span></label>
         <label class="inline-label">Business <select data-change="demo-story">${Object.entries(STORIES).map(([k, v]) => html`<option value="${k}" ${(o.story || 'bakery') === k ? 'selected' : ''}>${v.business.charAt(0).toUpperCase() + v.business.slice(1)}</option>`)}</select></label>
       </div>
-      <div class="type-grid">${MARKETS.map(card)}</div>
+      <div class="type-grid">${['costs', ...MARKETS].map(card)}</div>
     </section>
     <h2 class="group-h">Games of strategy</h2>
     <div class="type-grid">${STRATEGY_GAMES.map(card)}</div>
@@ -44,7 +45,8 @@ export function renderDemo(route) {
 }
 
 function card(t) {
-  return html`<a class="type-card gt-${t}" href="#/demo/${t}">${scene(t, normalizeConfig(t, MARKETS.includes(t) ? STORIES[store.ui.demoOpts?.story || 'bakery'] : {}), 'card-scene')}<strong>${GAME_LABELS[t]}</strong><span>${GAME_INFO[t].short}</span><span class="play-demo">Play demo</span></a>`;
+  const story = store.ui.demoOpts?.story || 'bakery';
+  return html`<a class="type-card gt-${t}" href="#/demo/${t}">${scene(t, normalizeConfig(t, MARKETS.includes(t) ? STORIES[story] : t === 'costs' ? COST_STORIES[story] : {}), 'card-scene')}<strong>${GAME_LABELS[t]}</strong><span>${GAME_INFO[t].short}</span><span class="play-demo">Play demo</span></a>`;
 }
 
 on('demo-hard', (el) => setUi('demoOpts', { hard: el.checked }));

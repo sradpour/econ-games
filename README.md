@@ -14,6 +14,7 @@ Free, self-hosted classroom economics games for introductory microeconomics, reb
 - Public goods: anonymous groups, partners or strangers matching, optional punishment phase.
 - Ultimatum and dictator games.
 - Tragedy of the commons: groups of three share a fishing lake that regrows from what is left (hidden number of seasons), with an optional anonymous group chat before each decision. A simple extract-or-wait version is a setting.
+- Costs and the supply curve: teams get a bakery's (pizzeria's, coffee cart's) bills and a production table, and work through a shared five-step worksheet (sort the bills; marginal product; FC/VC/TC; AVC/AFC/ATC/MC; supply schedule) modelled on the classic cost worksheet. Anyone on a team can edit; teams can check each step. Only the supply schedule is scored: at each price, how close the team's profit is to the best possible. The instructor ends the game; an answer key and the class's average supply curve are shown at the end.
 
 Every game also has a **demo mode** (`#/demo`, no sign-in needed): play alone against simulated players, with no timer and nothing saved.
 

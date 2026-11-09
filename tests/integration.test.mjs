@@ -24,7 +24,7 @@ before(async () => {
   execFileSync('psql', [...PSQL, '-c', 'drop database if exists econ_it', '-c', 'create database econ_it']);
   execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', 'tests/stubs.sql']);
   execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', 'supabase/migrations/0001_schema.sql']);
-  for (const m of ['0003_admin_management', '0004_tournament_progress', '0005_strategy_names', '0006_commons', '0007_round_info']) {
+  for (const m of ['0003_admin_management', '0004_tournament_progress', '0005_strategy_names', '0006_commons', '0007_round_info', '0008_costs']) {
     execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', `supabase/migrations/${m}.sql`]);
   }
   await sql(`insert into private.app_config(key, value) values ('engine_url', 'local-queue') on conflict (key) do update set value = excluded.value`);
@@ -293,6 +293,44 @@ test('tragedy of the commons: anonymous group chat, then catches; lakes shrink w
   assert.equal(st.results.filter((r) => r.round_no === 2).length, 9);
   assert.ok(st.results.filter((r) => r.round_no === 2).every((r) => r.payload.auto && r.payload.catch === 10), 'missed: last catch repeated, rationed from 30 fish');
   assert.equal(st.outputs.benchmarks.sustainable_per_person, 10);
+});
+
+test('costs game: any teammate saves the shared worksheet; nothing ends until the instructor does', async () => {
+  const T = as('siavash.radpour@stockton.edu');
+  const s = await T('create_session', { p_class: classId, p_game_type: 'costs', p_title: 'Bakery costs',
+    p_config: { team_mode: 'teams', team_size: 3, auto_advance: true } });
+  const ps = students.slice(0, 6);
+  for (const e of ps) { await as(e)('join_session', { p_session: s.id }); await as(e)('pass_check', { p_session: s.id }); }
+  const a = await as(ps[0])('create_team', { p_session: s.id, p_name: 'Rye' });
+  for (const e of ps.slice(1, 3)) await as(e)('join_team', { p_team: a.team_id });
+  await T('instructor_control', { p_session: s.id, p_action: 'start' });
+  await drain();
+  let g = await as(ps[2])('get_state', { p_session: s.id });
+  assert.equal(g.session.stage, 'decide');
+  assert.equal(g.team.name, 'Rye');
+  // Not the captain, still allowed to save
+  await as(ps[2])('submit_decision', { p_session: s.id, p_payload: { v: { 'mp:1': '30' }, schedule: { 3: 0, 4: 0, 5: 5, 6: 7, 7: 7, 8: 8, 9: 8, 10: 9 } } });
+  await as(ps[1])('submit_decision', { p_session: s.id, p_payload: { v: { 'mp:1': '30', 'mp:2': '50' }, schedule: { 3: 0, 4: 0, 5: 5, 6: 7, 7: 7, 8: 8, 9: 8, 10: 9 } } });
+  g = await as(ps[0])('get_state', { p_session: s.id });
+  assert.equal(g.me.decision.v['mp:2'], '50', 'teammates see the latest saved worksheet');
+  const other = await as(ps[3])('get_state', { p_session: s.id });
+  await as(ps[3])('submit_decision', { p_session: s.id, p_payload: { v: {}, schedule: { 3: 10 } } });
+  await fails(as(ps[3])('submit_decision', { p_session: s.id, p_payload: { v: { x: 'y'.repeat(21000) } } }), /too large/);
+  await drain();
+  g = await as(ps[0])('get_state', { p_session: s.id });
+  assert.equal(g.session.status, 'running', 'every team saved, but the game keeps going');
+  assert.ok(other.team.id !== g.team.id);
+  await T('instructor_control', { p_session: s.id, p_action: 'end_stage' });
+  await drain();
+  const st = await T('instructor_state', { p_session: s.id });
+  assert.equal(st.session.status, 'finished');
+  const byTeam = Object.fromEntries(st.results.map((r) => [r.team_id, r]));
+  assert.equal(Number(byTeam[g.team.id].earnings), 100);
+  assert.ok(Number(byTeam[other.team.id].earnings) < 60);
+  assert.equal(st.outputs.final.leaderboard[0].name, 'Rye');
+  g = await as(ps[1])('get_state', { p_session: s.id });
+  assert.equal(g.results[0].score, 100);
+  assert.equal(g.public[0].correct.length, 8);
 });
 
 test('strategy tournament: save, rate limit hook, results saved by instructor', async () => {

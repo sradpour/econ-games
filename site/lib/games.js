@@ -1,5 +1,5 @@
 // Game catalogue: descriptions, instructor settings and comprehension checks.
-import { DEFAULTS, GAME_LABELS, normalizeConfig, variableCost, marginalProduct, fixedMarketPrice } from './engine.js';
+import { DEFAULTS, GAME_LABELS, normalizeConfig, variableCost, marginalProduct, fixedMarketPrice, costsModel } from './engine.js';
 
 export { GAME_LABELS, normalizeConfig };
 export const MARKETS = ['competitive', 'monopolistic', 'oligopoly', 'monopoly'];
@@ -10,6 +10,49 @@ export const STORIES = {
   pizza: { business: 'pizzeria', product: 'pizza', product_plural: 'pizzas', material_name: 'dough and toppings', material_unit: 'lb', material_qty: 0.25, material_price: 2 },
   coffee: { business: 'coffee cart', product: 'cup', product_plural: 'cups', material_name: 'coffee beans and milk', material_unit: 'serving', material_qty: 1, material_price: 0.5 },
 };
+// Stories for the costs game (same numbers, different words).
+export const COST_STORIES = {
+  bakery: { business: 'bakery', product: 'loaf', product_plural: 'loaves', worker: 'baker', worker_plural: 'bakers',
+    material_name: 'flour', material_unit: 'lb', material_qty: 0.5, material_price: 1.2, extras_name: 'yeast, salt and sugar',
+    package_name: 'paper bag', energy_name: 'gas for the oven', lease_name: 'mixer and display case', sublet_name: 'a caterer', sunk_name: 'oven' },
+  pizza: { business: 'pizzeria', product: 'pizza', product_plural: 'pizzas', worker: 'cook', worker_plural: 'cooks',
+    material_name: 'cheese', material_unit: 'lb', material_qty: 0.25, material_price: 2.4, extras_name: 'dough, sauce and toppings',
+    package_name: 'pizza box', energy_name: 'wood for the oven', lease_name: 'dough mixer and freezer', sublet_name: 'a cooking school', sunk_name: 'pizza oven' },
+  coffee: { business: 'coffee cart', product: 'cup', product_plural: 'cups', worker: 'barista', worker_plural: 'baristas',
+    material_name: 'coffee beans', material_unit: 'oz', material_qty: 0.5, material_price: 1.2, extras_name: 'milk and sugar',
+    package_name: 'cup and lid', energy_name: 'electricity for the machines', lease_name: 'grinder and fridge', sublet_name: 'a juice vendor', sunk_name: 'espresso machine' },
+};
+
+// How each bill in the costs game should be sorted (step 1). Order is deliberately mixed.
+export const BILL_KINDS = [
+  ['sunk', 'Already paid; we can\'t get it back'],
+  ['fixed', 'We pay it even if we close'],
+  ['opening', 'We pay it only if we open (same amount however much we make)'],
+  ['per_unit', 'Goes up with every unit we make'],
+  ['per_worker', 'Goes up with every worker we hire'],
+  ['share', 'A share of every sale'],
+  ['forgone', 'Money we give up by opening'],
+];
+export function costBills(c) {
+  const P = c.period;
+  const one = /^[aeiou]/i.test(c.package_name) ? 'an' : 'a';
+  return [
+    { id: 'rent', kind: 'fixed', text: `Rent: ${money2(c.rent)} per ${P}. You signed a one-year rental agreement.` },
+    { id: 'sunk', kind: 'sunk', text: `The ${c.sunk_name} you bought last year for ${money2(c.sunk_cost)}. It can't be returned or resold.` },
+    { id: 'lease', kind: 'opening', text: `Leasing the ${c.lease_name}: ${money2(c.lease)} per ${P}. You can pause the lease on any ${P} you don't open.` },
+    { id: 'material', kind: 'per_unit', text: `${cap(c.material_name)}: each ${c.product} uses ${c.material_qty} ${c.material_unit}, at ${money2(c.material_price)} per ${c.material_unit}.` },
+    { id: 'insurance', kind: 'fixed', text: `Insurance: ${money2(c.insurance)} per ${P}, due whether or not you open.` },
+    { id: 'wages', kind: 'per_worker', text: `${cap(c.worker_plural)}: ${money2(c.wage)} each per ${P}. There is room for up to ${c.output_list.length} (see the production table).` },
+    { id: 'extras', kind: 'per_unit', text: `${cap(c.extras_name)}: ${money2(c.extras_cost)} per ${c.product}.` },
+    { id: 'ad', kind: 'sunk', text: `An ad in the local paper for this ${P}: ${money2(c.ad_cost)}, already paid, no refunds.` },
+    { id: 'package', kind: 'per_unit', text: `${cap(c.package_name)}s: ${money2(c.package_cost)} each. Every ${c.product} goes in ${one} ${c.package_name}.` },
+    { id: 'sublet', kind: 'forgone', text: `${cap(c.sublet_name)} will pay you ${money2(c.sublet)} to use your space on any ${P} you close.` },
+    { id: 'energy', kind: 'per_unit', text: `${cap(c.energy_name)}: ${money2(c.energy_cost)} for every batch of ${c.batch_size} ${c.product_plural}.` },
+    { id: 'license', kind: 'sunk', text: `Business license: ${money2(c.license_cost)} for the year, paid in January.` },
+    { id: 'card', kind: 'share', text: `Card fees: ${pctTxt(c.card_fee)} of every sale. Every customer pays by card.` },
+  ];
+}
+
 const cap = (t) => String(t).charAt(0).toUpperCase() + String(t).slice(1);
 const a_an = (w) => (/^[aeiou]/i.test(w) ? 'an' : 'a');
 export const rentOf = (c) => c.fixed_cost * (1 - c.avoidable_share);
@@ -141,6 +184,17 @@ export const GAME_INFO = {
       ];
     },
   },
+  costs: {
+    short: 'Sort a firm\'s bills, build its cost table step by step, and work out its supply curve.',
+    rules: (c) => [
+      `${c.team_mode === 'teams' ? 'Your team runs' : 'You run'} ${a_an(c.business)} ${c.business} in a competitive market: you take the price as given and sell every ${c.product} you make at that price.`,
+      `Your job: decide how many ${c.worker_plural} to hire, and so how many ${c.product_plural} to make, at each possible price from ${money2(c.price_list[0])} to ${money2(c.price_list[c.price_list.length - 1])}. That list is your supply schedule.`,
+      `You get your ${c.business}'s bills for one ${c.period} and a production table. Some bills matter for that decision and some don't. A five-step worksheet walks you through it${c.checks === 'on' ? ', and you can check each step' : ''}.`,
+      ...(c.team_mode === 'teams' ? ['Anyone on your team can type in the worksheet. Changes are saved for the whole team.'] : []),
+      'Scoring: at each price, how close your profit comes to the best possible (0% = the worst choice at that price, 100% = the best). Your score is the average over all prices.',
+      c.round_seconds ? `You have ${Math.round(c.round_seconds / 60)} minutes.` : 'Your instructor ends the game when time is up.',
+    ],
+  },
 };
 
 const money2 = (v) => { const n = Number(v); return `$${n.toLocaleString(undefined, Number.isInteger(n) ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; };
@@ -181,7 +235,35 @@ const display = [
   S('reveal_at_end', "Reveal everyone's decisions when the game ends", 'bool', ''),
 ];
 
+const costSettings = [
+  S('team_mode', 'Play as', 'select', 'Anyone on a team can edit the shared worksheet.', { options: [['teams', 'Teams'], ['individual', 'Individuals']] }),
+  S('team_size', 'Max team size', 'number', 'Students create, join and name their own teams.', { min: 1, max: 8, step: 1, showIf: (c) => c.team_mode === 'teams' }),
+  S('round_seconds', 'Time limit (seconds)', 'number', '0 = no timer: you end the game. 1800 = 30 minutes.', { min: 0, max: 7200, step: 60 }),
+  S('checks', 'Worksheet checking', 'select', 'Teams can check each step as they go. Only the supply schedule is scored.', { options: [['on', 'On: teams can check each step'], ['off', 'Off: no checking']] }),
+  S('show_answers', 'Show the answer key when the game ends', 'bool', ''),
+  S('story', 'Business', 'select', 'Fills in the names below; you can edit them.', { options: [['bakery', 'Bakery (loaves, bakers)'], ['pizza', 'Pizzeria (pizzas, cooks)'], ['coffee', 'Coffee cart (cups, baristas)']] }),
+  S('business', 'Business name', 'text', ''), S('product', 'Product (one)', 'text', ''), S('product_plural', 'Product (many)', 'text', ''),
+  S('worker', 'Worker (one)', 'text', ''), S('worker_plural', 'Worker (many)', 'text', ''), S('period', 'Time period', 'text', 'The bills are for one of these (day, week…).'),
+  S('output', 'Total output with 1, 2, 3… workers', 'text', 'Comma-separated, one number per extra worker. The default rises fast, then slowly (diminishing marginal product).', { maxlength: 120 }),
+  S('wage', 'Pay per worker per period ($)', 'number', '', { min: 0, step: 5 }),
+  S('material_name', 'Main ingredient', 'text', ''), S('material_unit', 'Its unit', 'text', ''),
+  S('material_qty', 'Amount per unit of product', 'number', '', { min: 0, step: 0.05 }), S('material_price', 'Price per unit of ingredient ($)', 'number', '', { min: 0, step: 0.05 }),
+  S('extras_name', 'Other ingredients', 'text', ''), S('extras_cost', 'Other ingredients per unit ($)', 'number', '', { min: 0, step: 0.05 }),
+  S('package_name', 'Packaging', 'text', ''), S('package_cost', 'Packaging per unit ($)', 'number', '', { min: 0, step: 0.05 }),
+  S('energy_name', 'Energy', 'text', ''), S('energy_cost', 'Energy per batch ($)', 'number', '', { min: 0, step: 0.05 }),
+  S('batch_size', 'Units per batch', 'number', 'A partial batch costs as much as a full one.', { min: 1, step: 1 }),
+  S('rent', 'Rent per period ($)', 'number', 'Paid even when closed.', { min: 0, step: 10 }), S('insurance', 'Insurance per period ($)', 'number', 'Paid even when closed.', { min: 0, step: 5 }),
+  S('lease_name', 'Leased equipment', 'text', ''), S('lease', 'Equipment lease per period ($)', 'number', 'Paid only when open.', { min: 0, step: 5 }),
+  S('sublet_name', 'Who pays to use the space when closed', 'text', ''), S('sublet', 'They pay ($ per period)', 'number', 'Income given up by opening (an opportunity cost).', { min: 0, step: 5 }),
+  S('sunk_name', 'Equipment already bought', 'text', ''), S('sunk_cost', 'Its price ($, sunk)', 'number', '', { min: 0, step: 100 }),
+  S('ad_cost', 'Prepaid ad ($, sunk)', 'number', '', { min: 0, step: 10 }), S('license_cost', 'Yearly license ($, sunk)', 'number', '', { min: 0, step: 10 }),
+  S('card_fee', 'Card fee (share of sales)', 'number', '0.03 = 3%.', { min: 0, max: 0.5, step: 0.01 }),
+  S('prices', 'Prices in the supply schedule', 'text', 'Comma-separated, up to 12.', { maxlength: 80 }),
+  S('leaderboard', 'Leaderboard', 'select', '', { options: [['end', 'Show at the end'], ['never', 'Never show students']] }),
+];
+
 export const SETTINGS = {
+  costs: costSettings,
   competitive: [...teamSettings, ...marketTiming, ...costs,
     S('demand_a', 'Demand intercept (per firm)', 'number', 'Market demand = number of firms × (a − b × P).', { min: 1, step: 5 }),
     S('demand_b', 'Demand slope (per firm)', 'number', '', { min: 0.1, step: 0.5 }),
@@ -412,6 +494,19 @@ export function quizFor(gameType, cfg) {
         Q('What happens if the lake is emptied?', 'It stays empty: nobody can catch anything for the rest of that fishing game',
           ['It refills to full next season', 'It refills halfway', 'You get the fish anyway']),
         ...(c.chat === 'off' ? [] : [anon]),
+      ];
+    }
+    case 'costs': {
+      const m = costsModel(c);
+      const w = Math.min(5, m.maxWorkers), p = c.price_list[Math.min(3, c.price_list.length - 1)];
+      return [
+        Q(`Your supply schedule says ${w} ${c.worker_plural} at ${money2(p)}. What does that mean?`,
+          `If the price is ${money2(p)}, you hire ${w} ${c.worker_plural} and make ${m.rows[w].q} ${c.product_plural}`,
+          [`You charge ${money2(p)} per ${c.worker}`, `You make ${w} ${c.product_plural} at ${money2(p)} each`, `You pay each ${c.worker} ${money2(p)}`]),
+        Q('How is your score worked out?', 'At every price, by how close your profit comes to the best possible',
+          ['By your profit at one random price', 'By how many worksheet cells are right', 'By how fast you finish']),
+        Q(`How many ${c.product_plural} can you sell at the market price?`, `Every ${c.product} you make`,
+          [`Only as many as you have ${c.worker_plural}`, 'Half of what you make', 'It depends on the other teams']),
       ];
     }
     default: return [];

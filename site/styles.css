@@ -41,6 +41,7 @@
 .gt-public_goods { --band: #1FBF68; }
 .gt-ultimatum { --band: #9B5CF6; }
 .gt-commons { --band: #14B8A6; }
+.gt-costs { --band: #E8590C; }
 
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
@@ -771,3 +772,44 @@ button.pd.d.chosen { color: #fff; background: linear-gradient(180deg, rgba(255,2
   button:active:not(:disabled), .button:active { transform: none; }
   .type-card:hover, .game-row:hover { transform: none; }
 }
+
+/* ---------------------------------------------------------------------------
+   Costs and the supply curve: the shared worksheet */
+.cw { display: grid; gap: 16px; margin-top: 12px; }
+.cw-books { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 760px) { .cw-books { grid-template-columns: 1fr; } }
+.cw .bills { margin: 0; padding-left: 1.3em; display: grid; gap: 6px; }
+.cw .bills li { line-height: 1.35; }
+.cw-save { display: flex; gap: 8px; align-items: center; }
+.cw-step > summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; cursor: pointer; list-style: none; }
+.cw-step > summary::-webkit-details-marker { display: none; }
+.cw-step .step-n { display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--band, var(--ink)); color: #fff;
+  font: 400 1.05rem var(--font-display); border: 2px solid var(--ink); flex: none; }
+.cw-step .step-t { font: 400 1.2rem var(--font-display); }
+.cw-step .step-p { margin-left: auto; color: var(--muted); }
+.cw-step[open] > summary { margin-bottom: 10px; }
+.cw .guide { margin: 0 0 12px; padding-left: 1.2em; display: grid; gap: 4px; }
+.cw .sort-list { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+.cw .sort-list li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px dashed var(--line); }
+@media (max-width: 640px) { .cw .sort-list li { grid-template-columns: 1fr; } }
+.cw .sort-list select, .cw .q-line select { width: 100%; }
+.cw .q-line { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.cw .q-line .cell { min-width: 200px; }
+.cw .cell { display: inline-block; }
+.cw .cell input { width: 92px; min-height: 36px; padding: 4px 6px; font-size: .92rem; text-align: right; }
+.cw .cell.ok input, .cw .cell.ok select { border-color: var(--pos); background: color-mix(in srgb, var(--pos) 12%, var(--paper)); }
+.cw .cell.bad input, .cw .cell.bad select { border-color: var(--neg); background: var(--supply-soft); }
+.cw .sched select { min-width: 120px; }
+.cw-final { border-width: 3px; }
+tr.miss td { background: color-mix(in srgb, var(--neg) 7%, transparent); }
+.cw-step .step-p { color: inherit; opacity: .9; }
+.cw-step .step-p .pos { color: inherit; font-weight: 800; }
+.cw-step .step-n { background: var(--paper); color: var(--ink); }
+.stack-cards { display: grid; gap: 16px; }
+/* Tables shown inside an opened leaderboard row keep the plain table look */
+.board tbody tr.peek-row .mini tbody tr td:nth-child(n), .board tbody tr.peek-row .mini thead tr th:nth-child(n) {
+  background: none; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; color: var(--ink); text-shadow: none;
+  font: 400 .9rem var(--font-body); text-align: right; width: auto; }
+.board tbody tr.peek-row .mini tbody tr td:first-child, .board tbody tr.peek-row .mini thead tr th:first-child { text-align: left; }
+.board tbody tr.peek-row .mini thead tr th:nth-child(n) { color: var(--muted); font-weight: 700; font-size: .8rem; }
+.board tbody tr.peek-row .mini tbody tr.miss td:nth-child(n) { background: color-mix(in srgb, var(--neg) 7%, transparent); }

@@ -11,6 +11,7 @@ import { statusChip } from './student.js';
 import { timerBar } from './play.js';
 import { roundsTotal, moveStrip, firmHistory } from './panels.js';
 import { tournamentResults } from './lab.js';
+import { costsInstructor, costsProjector } from './costs.js';
 
 let stop = null, current = null, loading = false, again = false;
 
@@ -101,12 +102,12 @@ function controls(st, c) {
         <div class="grow">${timerBar(s, s.stage === 'punish' ? 'Punishment stage' : s.stage === 'respond' ? 'Responses' : s.stage === 'chat' ? 'Chat closes in' : 'Round closes in')}
         ${s.game_type === 'commons' ? html`<p class="small muted">${commonsWhere(st, c)}</p>` : ''}
         ${st.round_info?.market_price != null ? roundPriceNote(st.round_info.market_price, c) : ''}
-        <p class="big-line">${prog} of ${st.required.length} submitted</p></div></div>
+        <p class="big-line">${prog} of ${st.required.length} ${s.game_type === 'costs' ? 'have saved work' : 'submitted'}</p></div></div>
       <div class="row wrap">
         ${s.status === 'running' ? html`<button data-action="ctl" data-op="pause">Pause</button>` : html`<button class="primary" data-action="ctl" data-op="resume">Resume</button>`}
         <button data-action="ctl" data-op="extend" data-seconds="30">+30 seconds</button>
         <button data-action="ctl" data-op="extend" data-seconds="60">+1 minute</button>
-        <button class="primary" data-action="ctl" data-op="end_stage">End ${s.stage === 'chat' ? 'chat' : s.stage === 'punish' || s.stage === 'respond' ? 'stage' : 'round'} now</button>
+        <button class="primary" data-action="ctl" data-op="end_stage">${s.game_type === 'costs' ? 'End and score now' : `End ${s.stage === 'chat' ? 'chat' : s.stage === 'punish' || s.stage === 'respond' ? 'stage' : 'round'} now`}</button>
         <a class="button" href="#/teach/game/${s.id}/projector">Projector view</a>
         <button class="danger" data-action="ctl" data-op="finish">End game</button>
       </div>` : ''}
@@ -172,6 +173,7 @@ on('p-check', async (el) => teamAct('mark_checked', { user: el.dataset.user }));
 function livePanels(st, c, teamOf) {
   const s = st.session;
   const t = s.game_type;
+  if (t === 'costs') return costsInstructor(st, c, teamOf);
   const pubs = st.public;
   const b = st.outputs.benchmarks;
   const lastRound = pubs.length ? pubs[pubs.length - 1].round_no : null;
@@ -400,6 +402,7 @@ function projector(st, c) {
   if (t === 'pd_live' && pubs.length) chart = lineChart({ title: 'Cooperation rate (%)', xInteger: true, height: 260, yMax: 100, series: [{ color: 'demand', dots: true, points: pubs.map((p) => [p.round_no, (p.cooperation_rate ?? 0) * 100]) }] });
   if (t === 'public_goods' && pubs.length) chart = lineChart({ title: 'Average contribution', xInteger: true, height: 260, series: [{ color: 'demand', dots: true, points: pubs.map((p) => [p.round_no, p.average_contribution]) }] });
   if (t === 'commons' && pubs.length) chart = commonsChart(st, c, 260);
+  if (t === 'costs' && pubs.length) chart = costsProjector(st, c);
   if (t === 'ultimatum' && pubs.length) chart = lineChart({ title: 'Average offer ($)', xInteger: true, height: 260, series: [{ color: 'demand', dots: true, points: pubs.map((p) => [p.round_no, p.average_offer]) }] });
   const prog = st.required?.length ? st.decisions.filter((d) => st.required.includes(d.team_id)).length : 0;
   return html`<main class="projector gt-${t}">
@@ -409,11 +412,11 @@ function projector(st, c) {
       <p>Sign in, join class <strong class="proj-code">${s.join_code}</strong>, then open <strong>${s.title}</strong>.</p>
       <p class="proj-count">${plural(st.players.length, 'player')} in</p></div>` : ''}
     ${['running', 'paused'].includes(s.status) && t !== 'pd_tournament' ? html`<div class="proj-live">
-      <div class="proj-round">Round <strong>${s.round_no}</strong>${total ? ` of ${total}` : ''}</div>
+      ${t === 'costs' ? '' : html`<div class="proj-round">Round <strong>${s.round_no}</strong>${total ? ` of ${total}` : ''}</div>`}
       ${st.round_info?.market_price != null ? html`<p class="proj-price">Market price this round: <strong>${money(st.round_info.market_price, 2)}</strong></p>` : ''}
-      ${timerBar(s)}<p class="proj-count">${prog} of ${st.required.length} submitted</p></div>` : ''}
+      ${timerBar(s)}<p class="proj-count">${prog} of ${st.required.length} ${t === 'costs' ? 'have saved work' : 'submitted'}</p></div>` : ''}
     <div class="proj-grid">${chart ? html`<div class="card">${raw(chart)}</div>` : ''}
-      ${showBoard && board.length ? html`<div class="card"><h2>Leaderboard</h2><ol class="proj-board">${board.map((r) => html`<li><span>${r.name}</span><strong>${MARKETS.includes(t) || t === 'commons' ? money(r.v) : num(r.v, 1)}</strong></li>`)}</ol></div>` : ''}
+      ${showBoard && board.length ? html`<div class="card"><h2>Leaderboard</h2><ol class="proj-board">${board.map((r) => html`<li><span>${r.name}</span><strong>${MARKETS.includes(t) || t === 'commons' ? money(r.v) : t === 'costs' ? `${num(r.v, 1)}%` : num(r.v, 1)}</strong></li>`)}</ol></div>` : ''}
       ${t === 'pd_tournament' && s.status === 'finished' ? html`<div class="card wide">${tournamentResults({ outputs: st.outputs }, { instructor: true })}</div>` : ''}
     </div>
   </main>`;

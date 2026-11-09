@@ -5,6 +5,7 @@ import { lineChart, sample, barChart } from '../lib/chart.js';
 import { serverNow } from '../app.js';
 import { submit } from './play.js';
 import { commonsStageLabel, commonsPanel, commonsLastResult, commonsPublic, commonsHistory } from './commons.js';
+import { costsLive, costsFinal } from './costs.js';
 
 const MARKET = ['competitive', 'monopolistic', 'oligopoly', 'monopoly'];
 
@@ -12,6 +13,7 @@ export function roundsTotal(type, c) {
   if (MARKET.includes(type) || type === 'ultimatum') return c.rounds;
   if (type === 'public_goods') return c.rounds_no_punish + c.rounds_punish;
   if (type === 'commons') return c.variant === 'simple' ? c.rounds : null;
+  if (type === 'costs') return 1;
   return null;
 }
 
@@ -27,6 +29,7 @@ export function stageLabel(s, g) {
       if (s.stage === 'respond') return a.role === 'responder' ? 'Accept or reject the offer' : 'Waiting for your partner';
       return a.role === 'proposer' ? 'Make an offer' : 'Waiting for the proposer';
     case 'commons': return commonsStageLabel(s, g);
+    case 'costs': return 'Work out your supply schedule';
     default: return '';
   }
 }
@@ -58,6 +61,7 @@ export function decisionPanel(g, c) {
     case 'public_goods': return s.stage === 'punish' ? punishForm(g, c) : contributeForm(g, c);
     case 'ultimatum': return ugForm(g, c);
     case 'commons': return commonsPanel(g, c);
+    case 'costs': return costsLive(g, c);
     default: return '';
   }
 }
@@ -465,6 +469,7 @@ export function lastResult(g, c) {
   if (!r) return '';
   const t = g.session.game_type;
   if (t === 'commons') return commonsLastResult(g, c);
+  if (t === 'costs') return '';
   let body = '';
   if (MARKET.includes(t)) {
     body = r.participated ? html`<dl class="pv result">
@@ -523,7 +528,7 @@ function leaderboardTable(rows, myName, money_) {
 export function publicBlock(g, c) {
   const t = g.session.game_type;
   const pubs = g.public;
-  if (!pubs.length) return '';
+  if (!pubs.length || t === 'costs') return '';
   const last = pubs[pubs.length - 1];
   if (t === 'commons') return commonsPublic(g, c, leaderboardTable);
   let chart = '';
@@ -559,7 +564,7 @@ export function publicBlock(g, c) {
 
 export function historyBlock(g, c) {
   const t = g.session.game_type;
-  if (!g.results.length) return '';
+  if (!g.results.length || t === 'costs') return '';
   if (t === 'commons') return commonsHistory(g, c);
   const rows = g.results.slice().reverse();
   let head, row;
@@ -585,6 +590,7 @@ export function historyBlock(g, c) {
 
 export function finalBlock(g, c) {
   const t = g.session.game_type;
+  if (t === 'costs') return costsFinal(g, c);
   const f = g.outputs.final;
   const mine = lastRes(g);
   const myName = g.team?.name;

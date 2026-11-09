@@ -1,15 +1,16 @@
 // Demo mode: play any game alone in the browser against simulated players.
 // Uses the same engine as real games; nothing is sent to the server.
-import { startGame, resolveStage, normalizeConfig, benchmarks, GAME_LABELS } from './engine.js';
+import { startGame, resolveStage, normalizeConfig, benchmarks, GAME_LABELS, costsModel } from './engine.js';
 import { store, rerender } from './dom.js';
 
-const BOTS = { competitive: 11, monopolistic: 9, oligopoly: 5, monopoly: 0, pd_live: 3, public_goods: 3, ultimatum: 3, commons: 5 };
+const BOTS = { competitive: 11, monopolistic: 9, oligopoly: 5, monopoly: 0, pd_live: 3, public_goods: 3, ultimatum: 3, commons: 5, costs: 7 };
 const DEMO_CONFIG = {
   competitive: { rounds: 6 }, monopolistic: { rounds: 6 }, oligopoly: { rounds: 6 }, monopoly: { rounds: 5 },
   pd_live: { matches: 2, min_rounds: 5, max_rounds: 8 },
   public_goods: { rounds_no_punish: 3, rounds_punish: 3, group_size: 4 },
   ultimatum: { rounds: 6 },
   commons: { matches: 2, min_seasons: 4, max_seasons: 6, chat: 'on', rounds: 5 },
+  costs: {},
 };
 const MARKETS = ['competitive', 'monopolistic', 'oligopoly', 'monopoly'];
 const U = (a, b) => a + Math.random() * (b - a);
@@ -25,7 +26,7 @@ export function startDemo(gameType, options = {}) {
   const cfg = normalizeConfig(gameType, base);
   const n = BOTS[gameType];
   const letters = 'ABCDEFGHIJKLMNOP';
-  const botName = (i) => (MARKETS.includes(gameType) ? `${cfg.business.charAt(0).toUpperCase() + cfg.business.slice(1)} ${letters[i]}` : `Computer player ${i + 1}`);
+  const botName = (i) => (MARKETS.includes(gameType) || gameType === 'costs' ? `${cfg.business.charAt(0).toUpperCase() + cfg.business.slice(1)} ${letters[i]}` : `Computer player ${i + 1}`);
   const teams = [{ id: 'me', name: 'You' }, ...Array.from({ length: n }, (_, i) => ({ id: `bot${i}`, name: botName(i) }))];
   const g = startGame(gameType, cfg, teams, Math.random);
   demo = {
@@ -37,6 +38,7 @@ export function startDemo(gameType, options = {}) {
   };
   for (const o of g.outputs) if (o.visibility === 'students') demo.outputs[o.kind] = o.payload;
   store.ui.quiz = null; // the check is built from this demo's settings
+  store.ui.cw = null;   // fresh worksheet for the costs game
   autoAdvance();
   publish();
 }
@@ -180,14 +182,34 @@ function botProfile(type, i) {
   if (type === 'ultimatum') return { offers: pick([[4, 5], [3, 4, 5], [5], [2, 3, 4]]), threshold: pick([2, 3, 3, 4]) };
   if (type === 'monopolistic') return { brand: pick([0, 0, 15, 30, 50]), bias: U(-0.15, 0.15) };
   if (type === 'commons') return { kind: ['copycat', 'greedy', 'steady', 'greedy', 'steady'][i % 5] };
+  if (type === 'costs') return { kind: ['right', 'counts_rent', 'forgets_opening', 'no_fee', 'max', 'mc_only', 'right'][i % 7] };
   return { bias: U(-0.12, 0.12) };
 }
 
 const lastOf = (id) => { const rs = demo.results.filter((r) => r.team_id === id); return rs[rs.length - 1]?.payload; };
 const lastPublic = () => demo.public[demo.public.length - 1]?.payload;
 
+// Costs game: computer teams make the classic mistakes (or none).
+function costsBot(kind) {
+  const m = costsModel(demo.config);
+  const pick = (p, f) => { let b = 0; for (let w = 1; w <= m.maxWorkers; w++) if (f(w, p) > f(b, p) + 1e-9) b = w; return b; };
+  const sch = {};
+  for (const p of m.c.price_list) {
+    let w;
+    if (kind === 'counts_rent') { w = m.best(p); if (m.profit(w, p) < 0) w = 0; }
+    else if (kind === 'forgets_opening') w = pick(p, (k, P) => (k ? P * m.keep * m.rows[k].q - m.rows[k].tc + m.opening : -m.fixed));
+    else if (kind === 'no_fee') w = pick(p, (k, P) => (k ? P * m.rows[k].q - m.rows[k].tc : -m.fixed) + (k ? 0.01 * k : 0));
+    else if (kind === 'max') w = m.maxWorkers;
+    else if (kind === 'mc_only') w = Math.max(1, m.rows.filter((r) => r.workers > 1 && r.mc <= p * m.keep).length + 1);
+    else w = m.best(p);
+    sch[String(p)] = w;
+  }
+  return { schedule: sch };
+}
+
 function botDecide(id, info) {
   const d = demo, c = d.config, bot = d.bots[id], t = d.type;
+  if (t === 'costs') return costsBot(bot.kind);
   if (t === 'competitive') {
     // Price takers: price at (or a touch below) the market price, produce roughly where marginal cost = price.
     const P = info.market_price ?? d.bench.price;

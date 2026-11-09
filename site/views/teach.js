@@ -1,7 +1,7 @@
 import { html, store, setState, setUi, on, toast, rerender, plural, confirmed } from '../lib/dom.js';
 import { rpc } from '../lib/api.js';
-import { GAME_LABELS, GAME_INFO, SETTINGS, defaultsFor, MARKETS, STORIES, normalizeConfig } from '../lib/games.js';
-import { benchmarks } from '../lib/engine.js';
+import { GAME_LABELS, GAME_INFO, SETTINGS, defaultsFor, MARKETS, STORIES, COST_STORIES, normalizeConfig } from '../lib/games.js';
+import { benchmarks, costsModel } from '../lib/engine.js';
 import { scene } from './scenes.js';
 import { marginalProduct } from '../lib/engine.js';
 import { go } from '../app.js';
@@ -143,6 +143,8 @@ export function renderNewGame(classId) {
   if (!ng?.type) {
     return html`<main class="page teach"><a class="back" href="#/teach">← Your classes</a>
       <h1>New game for ${c.name}</h1>
+      <h2 class="group-h">Costs and production</h2>
+      <div class="type-grid">${typeCard('costs', classId)}</div>
       <h2 class="group-h">Market structures</h2>
       <div class="type-grid">${MARKETS.map((t) => typeCard(t, classId))}</div>
       <h2 class="group-h">Games of strategy</h2>
@@ -158,6 +160,7 @@ export function renderNewGame(classId) {
     <form class="card settings" data-action="create-game">
       <label>Title students will see <input name="title" required value="${values.title}" data-input="ng-field"></label>
       ${MARKETS.includes(ng.type) ? costSummary(ng.type, values) : ''}
+      ${ng.type === 'costs' ? costsSummary(values) : ''}
       <div class="settings-grid">${SETTINGS[ng.type].filter((s) => !s.showIf || s.showIf(values)).map((s) => field(s, values[s.key]))}</div>
       <div class="row"><button class="primary big" type="submit">Create game</button></div>
       <p class="small muted">Players join from their class page. You start the game when everyone is in.</p>
@@ -172,6 +175,15 @@ function costSummary(type, values) {
     ${type === 'competitive' && c.market_rule !== 'cheapest' ? (() => { const b = benchmarks('competitive', c, 1); return `Market price: ${'$'}${b.price.toFixed(2)}${c.market_price > 0 ? '' : ' (the competitive equilibrium)'}. The best a firm can do is make about ${Math.round(b.quantity_per_firm)} ${c.product_plural} (marginal cost = price), for a profit of ${'$'}${b.profit_per_firm.toFixed(0)} per round.`; })() : ''}</div>`;
 }
 
+function costsSummary(values) {
+  const m = costsModel(values);
+  const c = m.c;
+  const minAvc = Math.min(...m.rows.filter((r) => r.q).map((r) => r.avc));
+  return html`<div class="note small">With these settings the correct supply schedule is
+    ${m.supply.map((x) => `${'$'}${x.price} → ${x.q}`).join(', ')} ${c.product_plural}.
+    The ${c.business} should close when the price it keeps is below ${'$'}${minAvc.toFixed(2)} (lowest average variable cost).</div>`;
+}
+
 function typeCard(t, classId) {
   return html`<button class="type-card gt-${t}" data-action="ng-type" data-type="${t}" data-class="${classId}">
     ${scene(t, normalizeConfig(t, {}), 'card-scene')}<strong>${GAME_LABELS[t]}</strong><span>${GAME_INFO[t].short}</span></button>`;
@@ -180,7 +192,7 @@ function typeCard(t, classId) {
 function field(s, v) {
   const id = `f_${s.key}`;
   if (s.type === 'bool') return html`<label class="switch wide"><input type="checkbox" name="${id}" ${v ? 'checked' : ''} data-change="ng-field"> <span>${s.label}</span>${s.help ? html`<span class="help">${s.help}</span>` : ''}</label>`;
-  if (s.type === 'text') return html`<label for="${id}">${s.label}<input id="${id}" type="text" name="${id}" value="${v ?? ''}" maxlength="40" data-input="ng-field">${s.help ? html`<span class="help">${s.help}</span>` : ''}</label>`;
+  if (s.type === 'text') return html`<label for="${id}">${s.label}<input id="${id}" type="text" name="${id}" value="${v ?? ''}" maxlength="${s.maxlength || 40}" data-input="ng-field">${s.help ? html`<span class="help">${s.help}</span>` : ''}</label>`;
   if (s.type === 'select') return html`<label for="${id}">${s.label}<select id="${id}" name="${id}" data-change="ng-field">${s.options.map(([val, lab]) => html`<option value="${val}" ${String(v) === val ? 'selected' : ''}>${lab}</option>`)}</select>${s.help ? html`<span class="help">${s.help}</span>` : ''}</label>`;
   return html`<label for="${id}">${s.label}<input id="${id}" type="number" name="${id}" value="${v}" ${s.min !== undefined ? `min="${s.min}"` : ''} ${s.max !== undefined ? `max="${s.max}"` : ''} step="${s.step ?? 'any'}" data-input="ng-field">${s.help ? html`<span class="help">${s.help}</span>` : ''}</label>`;
 }
@@ -202,11 +214,12 @@ on('ng-field', (el) => {
   const v = el.type === 'checkbox' ? el.checked : el.type === 'number' ? (el.value === '' ? '' : Number(el.value)) : el.value;
   const key = el.name.startsWith('f_') ? el.name.slice(2) : el.name;
   ng.values = { ...ng.values, [key]: v };
-  if (key === 'story' && STORIES[v]) {
-    ng.values = { ...ng.values, ...STORIES[v] };
-    for (const k of Object.keys(STORIES[v])) { const i = document.querySelector(`[name="f_${k}"]`); if (i) i.dataset.dirty = ''; }
+  const stories = ng.type === 'costs' ? COST_STORIES : STORIES;
+  if (key === 'story' && stories[v]) {
+    ng.values = { ...ng.values, ...stories[v] };
+    for (const k of Object.keys(stories[v])) { const i = document.querySelector(`[name="f_${k}"]`); if (i) i.dataset.dirty = ''; }
   }
-  if (MARKETS.includes(ng.type) && el.type === 'number') rerender(); // refresh the marginal cost summary
+  if ((MARKETS.includes(ng.type) || ng.type === 'costs') && (el.type === 'number' || key === 'output' || key === 'prices')) rerender(); // refresh the summary
   if (el.tagName === 'SELECT' || el.type === 'checkbox') rerender(); // may show/hide dependent fields
 });
 on('create-game', async () => {

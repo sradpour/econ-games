@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startGame, resolveStage, makeRng, allocateRationing, benchmarks, normalizeConfig } from '../supabase/functions/_shared/engine.js';
+import { startGame, resolveStage, makeRng, allocateRationing, benchmarks, normalizeConfig, costsModel, scoreSchedule } from '../supabase/functions/_shared/engine.js';
 
 const teams = (n) => Array.from({ length: n }, (_, i) => ({ id: `t${i + 1}`, name: `Team ${i + 1}` }));
 
@@ -362,4 +362,66 @@ test('commons simple: extract or wait payoffs', () => {
   assert.equal(c.state.cum.t1, 65);
   const bm = benchmarks('commons', { variant: 'simple' }, 3);
   assert.deepEqual([bm.all_wait_each, bm.all_extract_each, bm.lone_extractor], [20, 10, 30]);
+});
+
+test('costs: cost table follows the bills; supply follows MC above the lowest AVC', () => {
+  const m = costsModel({});
+  assert.equal(m.fixed, 170);                       // rent + insurance
+  assert.equal(m.opening, 140);                     // lease + income given up by opening
+  assert.deepEqual(m.rows.map((r) => r.q), [0, 30, 80, 140, 190, 230, 260, 290, 310, 325, 335]);
+  assert.equal(m.rows[0].vc, 0);
+  assert.equal(m.rows[1].vc, 290);                  // 120 wages + 30 × $1 inputs + 140 opening
+  assert.equal(m.rows[5].tc, 1140);
+  assert.equal(m.rows[8].mc, 7);                    // 8th worker: (120 + 20 × $1) / 20
+  assert.deepEqual(m.supply.map((x) => x.q), [0, 0, 230, 290, 290, 310, 310, 325]);
+  // Below the lowest AVC the firm closes even though some workers have MC below the price
+  const minAvc = Math.min(...m.rows.filter((r) => r.q).map((r) => r.avc));
+  for (const x of m.supply) assert.equal(x.q === 0, x.price * m.keep < minAvc);
+});
+
+test('costs: scoring is 100 for the best schedule and punishes the classic mistakes', () => {
+  const m = costsModel({});
+  const best = Object.fromEntries(m.supply.map((x) => [x.price, x.workers]));
+  assert.equal(scoreSchedule(m, best).score, 100);
+  assert.equal(scoreSchedule(m, best).right, 8);
+  const shutOnLoss = Object.fromEntries(m.supply.map((x) => [x.price, x.profit < 0 ? 0 : x.workers]));
+  const s1 = scoreSchedule(m, shutOnLoss);
+  assert.ok(s1.score < 100 && s1.score > 80, `closing on an accounting loss: ${s1.score}`);
+  assert.equal(s1.per[2].q, 0); assert.ok(s1.per[2].lost > 0);
+  const always = Object.fromEntries(m.c.price_list.map((p) => [p, m.maxWorkers]));
+  assert.ok(scoreSchedule(m, always).score < 70);
+  const blank = scoreSchedule(m, {});
+  assert.equal(blank.filled, 0);
+  assert.ok(blank.score < 50);
+});
+
+test('costs: one round, resolved by the instructor; everyone scored, class averages published', () => {
+  const ts = teams(3);
+  const s = startGame('costs', {}, ts, makeRng(1));
+  assert.equal(s.open.stage, 'decide');
+  assert.equal(s.open.seconds, 0);
+  assert.equal(s.config.auto_advance, false);
+  const m = costsModel(s.config);
+  const best = Object.fromEntries(m.supply.map((x) => [String(x.price), x.workers]));
+  const r = resolveStage({ gameType: 'costs', config: s.config, state: s.state, round_no: 1, stage: 'decide', teams: ts,
+    decisions: { t1: { schedule: best, v: { 'mp:1': '30' } }, t2: { schedule: { 3: 10, 4: 10 } } } });
+  assert.equal(r.finished, true);
+  const by = Object.fromEntries(r.results.map((x) => [x.team_id, x]));
+  assert.equal(by.t1.earnings, 100);
+  assert.ok(by.t2.earnings < by.t1.earnings);
+  assert.equal(by.t3.payload.auto, true);
+  const pub = r.round_public[0].payload;
+  assert.equal(pub.correct.length, 8);
+  assert.equal(pub.class_average_q.length, 8);
+  const fin = r.outputs.find((o) => o.kind === 'final');
+  assert.equal(fin.payload.leaderboard[0].team_id, 't1');
+});
+
+test('costs: custom output and prices are parsed and validated', () => {
+  const c = normalizeConfig('costs', { output: '10, 25, 35, 40, 40, x', prices: '9, 2, 5, 5', card_fee: 0 });
+  assert.deepEqual(c.output_list, [10, 25, 35, 40]);
+  assert.deepEqual(c.price_list, [2, 5, 9]);
+  const m = costsModel(c);
+  assert.equal(m.maxWorkers, 4);
+  assert.equal(m.keep, 1);
 });

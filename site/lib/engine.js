@@ -10,7 +10,7 @@
 
 export const GAME_TYPES = [
   'competitive', 'monopolistic', 'oligopoly', 'monopoly',
-  'pd_live', 'pd_tournament', 'public_goods', 'ultimatum', 'commons',
+  'pd_live', 'pd_tournament', 'public_goods', 'ultimatum', 'commons', 'costs',
 ];
 
 export const GAME_LABELS = {
@@ -23,6 +23,7 @@ export const GAME_LABELS = {
   public_goods: 'Public goods game',
   ultimatum: 'Ultimatum / dictator game',
   commons: 'Tragedy of the commons',
+  costs: 'Costs and the supply curve',
 };
 
 const MARKET_COMMON = {
@@ -137,6 +138,29 @@ export const DEFAULTS = {
     multiplier: 2,                         // the pool grows by this if everyone waits
     leaderboard: 'end', auto_advance: true,
   },
+  // One long round: teams sort a firm's bills, build its cost table step by step and submit a supply schedule
+  // (how many workers to hire, so how much to make, at each price). Scored on profit at every price vs the best possible.
+  costs: {
+    team_mode: 'teams', team_size: 4,
+    round_seconds: 0,                      // 0 = no timer; the instructor ends the round
+    checks: 'on',                          // 'on': teams can check each worksheet step | 'off'
+    show_answers: true,                    // show the answer key when the game ends
+    leaderboard: 'end', auto_advance: false,
+    story: 'bakery', period: 'day',
+    business: 'bakery', product: 'loaf', product_plural: 'loaves', worker: 'baker', worker_plural: 'bakers',
+    output: '30,80,140,190,230,260,290,310,325,335', // total output with 1, 2, 3… workers
+    wage: 120,                             // per worker per period
+    material_name: 'flour', material_unit: 'lb', material_qty: 0.5, material_price: 1.2,
+    extras_name: 'yeast, salt and sugar', extras_cost: 0.15,
+    package_name: 'paper bag', package_cost: 0.1,
+    energy_name: 'gas for the oven', energy_cost: 0.75, batch_size: 5,
+    rent: 150, insurance: 20,              // paid even when closed
+    lease_name: 'mixer and display case', lease: 60, // paid only on days you open
+    sublet_name: 'a caterer', sublet: 80,  // income you give up by opening
+    sunk_name: 'oven', sunk_cost: 2400, ad_cost: 50, license_cost: 300, // already paid
+    card_fee: 0.03,                        // share of every sale
+    prices: '3,4,5,6,7,8,9,10',
+  },
 };
 
 const NUM = (v, d) => (v === null || v === undefined || v === '' || Number.isNaN(Number(v)) ? d : Number(v));
@@ -172,8 +196,19 @@ export function normalizeConfig(gameType, cfg = {}) {
     out.max_catch = Math.max(1, Math.round(out.max_catch));
     out.growth = Math.max(0, out.growth);
   }
+  if (gameType === 'costs') {
+    const list = (str, lo) => [...new Set(String(str).split(/[,;\s]+/).map(Number).filter((v) => Number.isFinite(v) && v > lo))].sort((a, b) => a - b);
+    out.output_list = list(out.output, 0).map(Math.round).slice(0, 15);
+    if (!out.output_list.length) out.output_list = list(base.output, 0);
+    out.price_list = list(out.prices, 0).map(round2).slice(0, 12);
+    if (!out.price_list.length) out.price_list = list(base.prices, 0);
+    out.batch_size = Math.max(1, Math.round(out.batch_size));
+    out.card_fee = clamp(out.card_fee, 0, 0.5);
+    out.auto_advance = false;
+    if (out.checks !== 'off') out.checks = 'on';
+  }
   if (out.team_mode !== 'teams') out.team_mode = 'individual';
-  if ('wage' in base && (cfg.wage !== undefined || cfg.mc_intercept === undefined)) {
+  if ('wage' in base && gameType !== 'costs' && (cfg.wage !== undefined || cfg.mc_intercept === undefined)) {
     out.base_productivity = Math.max(0.01, out.base_productivity);
     out.productivity_half = Math.max(0.01, out.productivity_half);
     out.mc_intercept = out.material_qty * out.material_price + out.wage / out.base_productivity;
@@ -328,6 +363,93 @@ function goldenMax(f, lo, hi, iters = 80) {
   return (a + b) / 2;
 }
 
+// ---------------------------------------------------------------------------
+// Costs and the supply curve
+
+/**
+ * The cost table for the costs game, one row per number of workers (0 = closed for the period).
+ * Variable cost counts every cost the firm avoids by closing: wages, per-unit inputs, the lease it pays only
+ * when open, and the income it gives up by opening. Fixed cost is what it pays even when closed.
+ */
+export function costsModel(cfg) {
+  const c = cfg && cfg.output_list ? cfg : normalizeConfig('costs', cfg || {});
+  const Q = [0, ...c.output_list];
+  const perUnit = c.material_qty * c.material_price + c.extras_cost + c.package_cost;
+  const fixed = round2(c.rent + c.insurance);
+  const opening = round2(c.lease + c.sublet);
+  const rows = [];
+  Q.forEach((q, w) => {
+    const wages = w * c.wage;
+    const inputs = round2(q * perUnit + Math.ceil(q / c.batch_size - 1e-9) * c.energy_cost);
+    const vc = w === 0 ? 0 : round2(wages + inputs + opening);
+    const tc = round2(fixed + vc);
+    const prev = rows[w - 1];
+    rows.push({
+      workers: w, q, mp: w ? q - Q[w - 1] : null, wages, inputs, fc: fixed, vc, tc,
+      avc: q ? vc / q : null, afc: q ? fixed / q : null, atc: q ? tc / q : null,
+      mc: w && q > Q[w - 1] ? (tc - prev.tc) / (q - Q[w - 1]) : null,
+    });
+  });
+  const keep = 1 - c.card_fee;
+  const profit = (w, p) => round2(w === 0 ? -fixed : p * keep * rows[w].q - rows[w].tc);
+  const best = (p) => { let b = 0; for (let w = 1; w < rows.length; w++) if (profit(w, p) > profit(b, p) + 1e-9) b = w; return b; };
+  const supply = c.price_list.map((p) => { const w = best(p); return { price: p, workers: w, q: rows[w].q, profit: profit(w, p) }; });
+  return { c, rows, fixed, opening, perUnit, keep, profit, best, supply, maxWorkers: rows.length - 1 };
+}
+
+/**
+ * Score a supply schedule ({ price: workers }). At each price the choice earns 0% (the worst number of workers
+ * at that price) to 100% (the best); the score is the average over all prices, so every price counts the same.
+ */
+export function scoreSchedule(model, schedule) {
+  const { rows, profit, best } = model;
+  const per = model.c.price_list.map((p) => {
+    const raw = schedule ? schedule[String(p)] ?? schedule[p] : undefined;
+    const given = raw !== undefined && raw !== null && raw !== '' && Number.isFinite(Number(raw));
+    const w = given ? clamp(Math.round(Number(raw)), 0, rows.length - 1) : 0;
+    const b = best(p);
+    let worst = Infinity;
+    for (let k = 0; k < rows.length; k++) worst = Math.min(worst, profit(k, p));
+    const pr = profit(w, p), bp = profit(b, p);
+    const pts = bp - worst > 1e-9 ? (pr - worst) / (bp - worst) : 1;
+    return { price: p, workers: w, q: rows[w].q, given, profit: pr, best_workers: b, best_q: rows[b].q, best_profit: bp, lost: round2(bp - pr), points: Math.round(pts * 1000) / 10 };
+  });
+  return {
+    per, filled: per.filter((r) => r.given).length,
+    total_profit: round2(per.reduce((s, r) => s + r.profit, 0)),
+    best_total_profit: round2(per.reduce((s, r) => s + r.best_profit, 0)),
+    lost: round2(per.reduce((s, r) => s + r.lost, 0)),
+    right: per.filter((r) => r.lost < 0.005).length,
+    score: per.length ? Math.round((10 * per.reduce((s, r) => s + r.points, 0)) / per.length) / 10 : 0,
+  };
+}
+
+function resolveCosts(ctx) {
+  const { config: c, state, round_no, teams } = ctx;
+  const model = costsModel(c);
+  const decisions = ctx.decisions || {};
+  const results = [];
+  for (const t of teams) {
+    const d = decisions[t.id];
+    const sc = scoreSchedule(model, d?.schedule || {});
+    const payload = { ...sc, auto: !d };
+    state.cum[t.id] = sc.score;
+    state.rounds_played[t.id] = 1;
+    payload.cumulative = sc.score;
+    results.push({ round_no, team_id: t.id, payload, earnings: sc.score });
+  }
+  const n = results.length;
+  const pub = {
+    round_no, teams: n,
+    average_score: n ? round2(results.reduce((s, r) => s + r.payload.score, 0) / n) : null,
+    correct: model.supply.map(({ price, workers, q }) => ({ price, workers, q })),
+    class_average_q: model.c.price_list.map((p, i) => ({ price: p, q: n ? round2(results.reduce((s, r) => s + r.payload.per[i].q, 0) / n) : null })),
+    right_share: model.c.price_list.map((p, i) => ({ price: p, share: n ? results.filter((r) => r.payload.per[i].lost < 0.005).length / n : null })),
+  };
+  if (c.leaderboard === 'live') pub.leaderboard = leaderboard(teams, state);
+  return { state, results, round_public: [{ round_no, payload: pub }], assignments: [], finished: true };
+}
+
 export function benchmarks(gameType, config, nFirms) {
   const c = normalizeConfig(gameType, config);
   const N = Math.max(1, nFirms);
@@ -426,6 +548,11 @@ export function startGame(gameType, rawConfig, teams, rng = Math.random) {
     state.byes = {};
     return { config, state, open: openUgRound(state, config, ids, 1, rng), outputs };
   }
+  if (gameType === 'costs') {
+    const m = costsModel(config);
+    outputs.push({ kind: 'benchmarks', visibility: 'instructor', payload: { kind: 'costs', supply: m.supply, fixed: m.fixed, opening: m.opening } });
+    return { config, state, open: { round_no: 1, stage: 'decide', seconds: config.round_seconds, required: ids, assignments: [] }, outputs };
+  }
   if (gameType === 'commons') {
     state.groups = null; state.labels = {}; state.last_catch = {};
     outputs.push({ kind: 'benchmarks', visibility: 'instructor', payload: benchmarks(gameType, config, ids.length) });
@@ -453,6 +580,7 @@ export function resolveStage(ctx, rng = Math.random) {
     case 'public_goods': out = resolvePg(c2, rng); break;
     case 'ultimatum': out = resolveUg(c2, rng); break;
     case 'commons': out = resolveCommons(c2, rng); break;
+    case 'costs': out = resolveCosts(c2); break;
     case 'pd_tournament':
       out = { state: c2.state, results: [], round_public: [], assignments: [], finished: true, outputs: [] }; break;
     default: throw new Error(`Unknown game type ${ctx.gameType}`);
