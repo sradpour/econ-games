@@ -24,7 +24,7 @@ before(async () => {
   execFileSync('psql', [...PSQL, '-c', 'drop database if exists econ_it', '-c', 'create database econ_it']);
   execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', 'tests/stubs.sql']);
   execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', 'supabase/migrations/0001_schema.sql']);
-  for (const m of ['0003_admin_management', '0004_tournament_progress', '0005_strategy_names', '0006_commons', '0007_round_info', '0008_costs']) {
+  for (const m of ['0003_admin_management', '0004_tournament_progress', '0005_strategy_names', '0006_commons', '0007_round_info', '0008_costs', '0009_submit_no_deadlock']) {
     execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', `supabase/migrations/${m}.sql`]);
   }
   await sql(`insert into private.app_config(key, value) values ('engine_url', 'local-queue') on conflict (key) do update set value = excluded.value`);
@@ -293,6 +293,24 @@ test('tragedy of the commons: anonymous group chat, then catches; lakes shrink w
   assert.equal(st.results.filter((r) => r.round_no === 2).length, 9);
   assert.ok(st.results.filter((r) => r.round_no === 2).every((r) => r.payload.auto && r.payload.catch === 10), 'missed: last catch repeated, rationed from 30 fish');
   assert.equal(st.outputs.benchmarks.sustainable_per_person, 10);
+});
+
+test('30 students submitting at the same instant never deadlock', async () => {
+  const T = as('siavash.radpour@stockton.edu');
+  const s = await T('create_session', { p_class: classId, p_game_type: 'public_goods', p_title: 'Rush',
+    p_config: { auto_advance: false, contribute_seconds: 0, rounds_no_punish: 2, rounds_punish: 0 } });
+  for (const e of students) { await as(e)('join_session', { p_session: s.id }); await as(e)('pass_check', { p_session: s.id }); }
+  await T('instructor_control', { p_session: s.id, p_action: 'start' });
+  await drain();
+  for (let wave = 0; wave < 4; wave++) {
+    const out = await Promise.allSettled(students.map((e, i) => as(e)('submit_decision', { p_session: s.id, p_payload: { contribution: (i + wave) % 20 } })));
+    const bad = out.filter((o) => o.status === 'rejected').map((o) => o.reason.message);
+    assert.deepEqual(bad, [], `wave ${wave}: ${bad.length} failed (${bad[0]})`);
+  }
+  const st = await T('instructor_state', { p_session: s.id });
+  assert.equal(st.decisions.length, 30);
+  await T('instructor_control', { p_session: s.id, p_action: 'finish' });
+  await drain();
 });
 
 test('costs game: any teammate saves the shared worksheet; nothing ends until the instructor does', async () => {
