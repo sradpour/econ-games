@@ -24,7 +24,7 @@ before(async () => {
   execFileSync('psql', [...PSQL, '-c', 'drop database if exists econ_it', '-c', 'create database econ_it']);
   execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', 'tests/stubs.sql']);
   execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', 'supabase/migrations/0001_schema.sql']);
-  for (const m of ['0003_admin_management', '0004_tournament_progress', '0005_strategy_names', '0006_commons', '0007_round_info', '0008_costs', '0009_submit_no_deadlock']) {
+  for (const m of ['0003_admin_management', '0004_tournament_progress', '0005_strategy_names', '0006_commons', '0007_round_info', '0008_costs', '0009_submit_no_deadlock', '0010_demo_translator']) {
     execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', `supabase/migrations/${m}.sql`]);
   }
   await sql(`insert into private.app_config(key, value) values ('engine_url', 'local-queue') on conflict (key) do update set value = excluded.value`);
@@ -382,6 +382,14 @@ test('grading export has one row per student per round with student IDs', async 
   assert.equal(ex.rows.length, 90);
   assert.ok(ex.rows.every((r) => r.student_id && r.email.endsWith('@go.stockton.edu')));
   assert.equal(ex.students.length, 30);
+});
+
+test('demo translator allowance: signed-in users only, 15 per day', async () => {
+  const e = students[5];
+  for (let i = 1; i <= 15; i++) assert.equal((await as(e)('consume_demo_translation')).used, i);
+  await fails(as(e)('consume_demo_translation'), /15 demo translations/);
+  assert.equal((await as(students[6])('consume_demo_translation')).used, 1, 'each person has their own allowance');
+  await fails(rpc('consume_demo_translation', {}, null), /sign in/i);
 });
 
 test('engine functions are not callable by students', async () => {

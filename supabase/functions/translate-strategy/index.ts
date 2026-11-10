@@ -1,5 +1,5 @@
 // Turns a team's plain-English prisoner's dilemma strategy into a small JavaScript function using Gemini.
-// Called from the browser by a signed-in student: POST { session_id, description, previous_code?, feedback? }
+// Called from the browser by a signed-in user: POST { session_id | demo: true, description, previous_code?, feedback? }
 // Deploy with JWT verification ON.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
@@ -105,15 +105,17 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return json({ error: 'POST only' }, 405);
   const auth = req.headers.get('Authorization') ?? '';
-  let body: { session_id?: string; description?: string; previous_code?: string; feedback?: string };
+  let body: { session_id?: string; demo?: boolean; description?: string; previous_code?: string; feedback?: string };
   try { body = await req.json(); } catch { return json({ error: 'Bad request.' }, 400); }
   const description = (body.description ?? '').trim();
-  if (!body.session_id || description.length < 5) return json({ error: 'Describe your strategy first.' }, 400);
+  if ((!body.session_id && body.demo !== true) || description.length < 5) return json({ error: 'Describe your strategy first.' }, 400);
   if (description.length > 3000) return json({ error: 'Please keep the description under 3000 characters.' }, 400);
 
-  // Check membership and rate limit as the signed-in student
+  // Check membership and rate limit as the signed-in user (demo: a small daily allowance per person)
   const asUser = createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: auth } }, auth: { persistSession: false } });
-  const { error: limitError } = await asUser.rpc('consume_translation', { p_session: body.session_id });
+  const { error: limitError } = body.session_id
+    ? await asUser.rpc('consume_translation', { p_session: body.session_id })
+    : await asUser.rpc('consume_demo_translation');
   if (limitError) return json({ error: limitError.message }, 403);
 
   const service = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });

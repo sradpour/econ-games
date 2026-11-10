@@ -89,7 +89,8 @@ export function startServer(port = PORT) {
           const code = d.includes('always defect') ? 'function strategy() { return "D"; }'
             : d.includes('loop') ? 'function strategy() { while (true) {} }'
             : 'function strategy(myMoves, theirMoves, round) {\n  // copy their last move\n  if (round === 1) return "C";\n  return theirMoves[theirMoves.length - 1];\n}';
-          await rpc('consume_translation', { p_session: body.session_id }, req.headers['x-dev-user']);
+          if (body.session_id) await rpc('consume_translation', { p_session: body.session_id }, req.headers['x-dev-user']);
+          else await rpc('consume_demo_translation', {}, req.headers['x-dev-user']);
           return send(200, { code, explanation: '1. (Local test translator) ' + (d.includes('always defect') ? 'Always defect.' : 'Cooperate first, then copy their last move.'), assumptions: [] });
         }
         if (url.pathname.startsWith('/rpc/')) {

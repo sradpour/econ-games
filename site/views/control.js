@@ -5,7 +5,7 @@ import { GAME_LABELS, normalizeConfig, MARKETS, SETTINGS } from '../lib/games.js
 import { lineChart, barChart } from '../lib/chart.js';
 import { benchmarks } from '../lib/engine.js';
 import { downloadCsv, flatten } from '../lib/csv.js';
-import { runTournament, HOUSE } from '../lib/pd.js';
+import { runTournament, HOUSE, computerName } from '../lib/pd.js';
 import { syncClock, go } from '../app.js';
 import { statusChip } from './student.js';
 import { timerBar } from './play.js';
@@ -343,7 +343,7 @@ on('run-tournament', async () => {
   const c = normalizeConfig(st.session.game_type, st.session.config);
   const entrants = st.strategies.filter((x) => x.submitted && st.teams.some((t) => t.id === x.team_id))
     .map((x) => { const team = st.teams.find((t) => t.id === x.team_id).name; return { id: x.team_id, team_id: x.team_id, name: x.name || team, team, code: x.code }; });
-  if (c.include_house) for (const h of HOUSE.filter((h) => h.id !== 'house:random')) entrants.push({ id: h.id, name: h.name, code: h.code });
+  if (c.include_house) HOUSE.filter((h) => h.id !== 'house:random').forEach((h, i) => entrants.push({ id: h.id, name: computerName(i), house_name: h.name, code: h.code }));
   if (entrants.length < 2) throw new Error('At least two strategies are needed.');
   setUi('tourn', { running: true, progress: 0, error: null });
   try {

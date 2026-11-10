@@ -35,7 +35,7 @@ export function renderLab(g, c) {
       <form data-action="translate" class="stack">
         <label>Strategy name <input name="sname" maxlength="40" value="${sname}" data-input="lab-name" placeholder="e.g. Forgiving Fox" required>
           <span class="help">Shown on the tournament scoreboard.</span></label>
-        <textarea name="description" rows="5" maxlength="3000" data-input="lab-desc" placeholder="Example: Cooperate in the first round. After that, do whatever my opponent did last round, but forgive a single defection one time in three.">${description}</textarea>
+        <textarea name="description" rows="5" maxlength="3000" data-input="lab-desc" placeholder="In plain English: what do you do in the first round? How do you react to what the other player did? Do you ever forgive, punish, or change your mind? Be as specific as you can.">${description}</textarea>
         <button class="primary" type="submit" ${L.translating ? 'disabled' : ''}>${L.translating ? `Translating… ${Math.round((Date.now() - L.translateStarted) / 1000)} s` : code ? 'Translate again' : 'Translate'}</button>
         ${L.translating ? html`<p class="small muted">Sent to Google's Gemini; waiting for its answer. This usually takes 5–20 seconds. If nothing comes back within 90 seconds you'll see an error here.</p>` : ''}
         ${L.translateError ? html`<p class="error">${L.translateError}</p>` : ''}
@@ -51,15 +51,11 @@ export function renderLab(g, c) {
         <label>Not right? Say what's wrong <textarea name="feedback" rows="2" placeholder="It should forgive after two rounds, not one."></textarea></label>
         <button type="submit" ${L.translating ? 'disabled' : ''}>Fix the translation</button>
       </form>
-      <details class="code"><summary>Show the program</summary>
-        <textarea class="mono" rows="12" spellcheck="false" data-input="lab-code" aria-label="Strategy program">${code}</textarea>
-        <p class="small muted">You can edit this directly if you know JavaScript. It must define <code>function strategy(myMoves, theirMoves, round)</code> returning "C" or "D".</p>
-      </details>
     </section>
 
     <section class="card lab-step">
       <h2>3. Test it</h2>
-      <p class="muted">Plays one match against each house strategy and against a copy of itself. Match lengths are random, between ${c.min_rounds} and ${c.max_rounds} rounds.</p>
+      <p class="muted">Plays one match against each of ${HOUSE.length} practice opponents (computer players that each play a different way) and against a copy of itself. Match lengths are random, between ${c.min_rounds} and ${c.max_rounds} rounds.</p>
       <button data-action="run-tests" ${L.testing ? 'disabled' : ''}>${L.testing ? 'Running…' : 'Run test matches'}</button>
       ${L.testError ? html`<p class="error">${L.testError}</p>` : ''}
       ${L.tests ? testTable(L.tests) : ''}
@@ -77,13 +73,14 @@ export function renderLab(g, c) {
 }
 
 export function testTable(results) {
-  const name = (id) => (id === 'me2' ? 'Your own strategy' : HOUSE.find((h) => h.id === id)?.name || id);
+  // Practice opponents are numbered, never named: students should not see (or copy) textbook strategies.
+  const order = HOUSE.map((h) => h.id);
+  const name = (id) => (id === 'me2' ? 'A copy of your own strategy' : `Practice opponent ${order.indexOf(id) + 1}`);
   const errs = results.flatMap((r) => r.errorsA);
   return html`
-    ${errs.length ? html`<div class="error"><strong>Problems found:</strong><ul>${[...new Set(errs)].slice(0, 5).map((e) => html`<li>${e}</li>`)}</ul></div>` : ''}
+    ${errs.length ? html`<div class="error"><strong>The translated strategy did not run properly.</strong> Press "Translate again" or describe what should change.</div>` : ''}
     <ul class="tests">${results.map((r) => html`<li>
       <div class="test-head"><strong>vs ${name(r.b)}</strong><span>You <strong>${r.scoreA}</strong> · Them <strong>${r.scoreB}</strong></span></div>
-      ${HOUSE.find((h) => h.id === r.b)?.blurb ? html`<p class="small muted">${HOUSE.find((h) => h.id === r.b).blurb}</p>` : ''}
       ${moveStrip(r.movesA, r.movesB, 'You', 'Them')}</li>`)}</ul>`;
 }
 
@@ -125,7 +122,7 @@ on('run-tests', async () => {
     const tests = await testStrategy(code, store.game.session.config);
     setUi('lab', { tests, testing: false });
   } catch (e) {
-    setUi('lab', { testing: false, tests: null, testError: e.message });
+    setUi('lab', { testing: false, tests: null, testError: 'The translated strategy does not run properly. Press "Translate again" or describe what should change.' });
   }
 });
 
@@ -134,7 +131,7 @@ on('submit-strategy', async () => {
   if (!code.includes('function strategy')) throw new Error('Translate your strategy first.');
   if (!currentName()) { document.querySelector('input[name=sname]')?.focus(); throw new Error('Give your strategy a name first (step 1).'); }
   try { await testStrategy(code, store.game.session.config, [HOUSE[0].id]); }
-  catch (e) { throw new Error(`Fix this before submitting: ${e.message}`); }
+  catch (e) { throw new Error('The translated strategy does not run properly. Press "Translate again" (or describe what should change) before submitting.'); }
   const L = lab(); const saved = store.game.strategy || {};
   await rpc('save_strategy', {
     p_session: sid(), p_description: L.description ?? saved.description ?? '', p_code: code,
@@ -159,7 +156,7 @@ export function tournamentResults(g, opts = {}) {
       <div><p class="muted">${mine.name && mine.name !== mine.team ? `“${mine.name}” scored` : 'Your strategy scored'}</p><p class="score">${num(mine.total)}</p><p class="small muted">${num(mine.average, 2)} points per round · ${mine.wins} wins, ${mine.ties} ties, ${mine.losses} losses</p></div></div>` : ''}
     <section class="card"><h2>Ranking</h2>
       <table class="board"><thead><tr><th>#</th><th>Strategy</th><th>Total</th><th>Per round</th><th>W–T–L</th></tr></thead><tbody>
-      ${t.ranking.map((r) => html`<tr class="${r.team_id && r.team_id === myId ? 'me' : ''}"><td>${r.rank}</td><td><strong>${r.name}</strong>${r.team && r.team !== r.name ? html`<div class="small muted">${r.team}</div>` : ''}${r.house ? html` <span class="chip">house</span>` : ''}${r.disqualified ? html`<div class="small neg">Broken program, played as Always Cooperate</div>` : ''}</td>
+      ${t.ranking.map((r) => html`<tr class="${r.team_id && r.team_id === myId ? 'me' : ''}"><td>${r.rank}</td><td><strong>${r.name}</strong>${r.team && r.team !== r.name ? html`<div class="small muted">${r.team}</div>` : ''}${r.house ? html` <span class="chip">computer</span>${opts.instructor && r.house_name ? html`<div class="small muted">${r.house_name}</div>` : ''}` : ''}${r.disqualified ? html`<div class="small neg">Its program did not run, so it cooperated every round</div>` : ''}</td>
         <td>${num(r.total)}</td><td>${num(r.average, 2)}</td><td>${r.wins}–${r.ties}–${r.losses}</td></tr>`)}
       </tbody></table>
       <p class="small muted">Each pair played ${t.repeats} ${t.repeats === 1 ? 'match' : 'matches'}; match lengths were ${t.lengths.join(', ')} rounds.</p>

@@ -122,8 +122,8 @@ export const GAME_INFO = {
   pd_tournament: {
     short: "Describe a prisoner's dilemma strategy in plain English, test it, and enter it in a round-robin tournament.",
     rules: (c) => [
-      'With your team, describe a strategy in plain English. The AI translator turns it into a small program.',
-      'Check the plain-English explanation and the test matches to make sure it does exactly what you meant.',
+      'With your team, describe a strategy in plain English. An AI translator turns it into something the computer can play.',
+      'Check the AI\'s plain-English explanation and the practice matches to make sure it does exactly what you meant.',
       `In the tournament every strategy plays every other strategy. Each match lasts ${c.min_rounds}–${c.max_rounds} rounds and strategies cannot know which round is last.`,
       `Payoffs per round: both cooperate ${c.payoff_R} each, both defect ${c.payoff_P} each, defect vs cooperate ${c.payoff_T} vs ${c.payoff_S}.`,
     ],
@@ -315,7 +315,7 @@ export const SETTINGS = {
   pd_tournament: [...teamSettings,
     S('min_rounds', 'Shortest match (rounds)', 'number', '', { min: 1, step: 1 }), S('max_rounds', 'Longest match (rounds)', 'number', '', { min: 1, step: 1 }),
     S('repeats', 'Times each pair plays', 'number', 'Each repetition uses a new random match length.', { min: 1, max: 10, step: 1 }),
-    S('include_house', 'Add house strategies (Tit for Tat, Always Defect…) as extra entrants', 'bool', ''),
+    S('include_house', 'Add 8 computer strategies as extra entrants', 'bool', 'Classic strategies such as Tit for Tat. Students see them only as Computer 1, Computer 2…; you see the real names.'),
     S('payoff_R', 'Both cooperate (each)', 'number', '', { step: 1 }), S('payoff_P', 'Both defect (each)', 'number', '', { step: 1 }),
     S('payoff_T', 'Defect vs cooperate: defector', 'number', '', { step: 1 }), S('payoff_S', 'Defect vs cooperate: cooperator', 'number', '', { step: 1 })],
   public_goods: [
@@ -437,7 +437,7 @@ export function quizFor(gameType, cfg) {
         Q('What can your strategy look at when it decides?', 'Its own and its opponent\'s moves so far in the current match',
           ['The opponent\'s name', 'How many rounds are left', 'The opponent\'s program']),
         Q('Both strategies cooperate in a round. How many points does each get?', c.payoff_R, uniq(c.payoff_R, [c.payoff_T, c.payoff_P, c.payoff_S, c.payoff_R + 2])),
-        Q('Who will your strategy play against?', 'Every other team\'s strategy', ['Only Tit for Tat', 'One random team', 'Itself only'])];
+        Q('Who will your strategy play against?', 'Every other team\'s strategy', ['Only the computer', 'One random team', 'Itself only'])];
     case 'public_goods': {
       const mine = Math.round(c.endowment / 2);
       const total = mine * Math.max(2, c.group_size);

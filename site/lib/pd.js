@@ -21,6 +21,9 @@ export const HOUSE = [
     code: `function strategy(myMoves, theirMoves, round) { return round % 2 === 1 ? "C" : "D"; }` },
 ];
 
+/** Students never see the built-in strategies' names: they are "Computer 1", "Computer 2"… */
+export const computerName = (i) => `Computer ${i + 1}`;
+
 export const payoffsFrom = (cfg = {}) => ({
   T: Number(cfg.payoff_T ?? 5), R: Number(cfg.payoff_R ?? 3), P: Number(cfg.payoff_P ?? 1), S: Number(cfg.payoff_S ?? 0),
 });
@@ -102,7 +105,7 @@ export async function runTournament(entrants, cfg, onProgress) {
     A.errors += m.errorsA.length; B.errors += m.errorsB.length;
   }
   const ranking = screened.map((e) => ({
-    team_id: e.team_id ?? null, entrant_id: e.id, name: e.name, team: e.team ?? null, house: !e.team_id,
+    team_id: e.team_id ?? null, entrant_id: e.id, name: e.name, team: e.team ?? null, house: !e.team_id, house_name: e.house_name ?? null,
     disqualified: e.disqualified, ...score[e.id],
     average: score[e.id].rounds ? Math.round((score[e.id].total / score[e.id].rounds) * 1000) / 1000 : 0,
   })).sort((a, b) => b.total - a.total);
