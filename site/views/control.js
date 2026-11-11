@@ -11,7 +11,7 @@ import { statusChip } from './student.js';
 import { timerBar } from './play.js';
 import { roundsTotal, moveStrip, firmHistory } from './panels.js';
 import { tournamentResults } from './lab.js';
-import { costsInstructor, costsProjector } from './costs.js';
+import { costsInstructor, costsProjector, costsSolve } from './costs.js';
 
 let stop = null, current = null, loading = false, again = false;
 
@@ -72,6 +72,7 @@ export function renderControl(route) {
   const s = st.session;
   const c = normalizeConfig(s.game_type, s.config);
   if (route.projector) return projector(st, c);
+  if (route.solve && s.game_type === 'costs') return costsSolve(st, c);
   const teamOf = Object.fromEntries(st.teams.map((t) => [t.id, t]));
   return html`<main class="page control gt-${s.game_type}">
     <a class="back" href="#/teach">← ${s.class_name}</a>
@@ -88,15 +89,40 @@ export function renderControl(route) {
   </main>`;
 }
 
+function selfPacedControls(st, c) {
+  const s = st.session;
+  const joined = st.players.length;
+  const submitted = (st.results || []).filter((r) => !r.payload?.auto).length;
+  const solve = html`<a class="button" href="#/teach/game/${s.id}/solve">Solve it on screen</a>`;
+  const exports = s.status !== 'lobby' ? html`<div class="row wrap exports">
+      <button data-action="export" data-kind="summary">Download grades (one row per student)</button>
+      <button data-action="export" data-kind="detail">Download all submissions</button></div>` : '';
+  if (s.status === 'lobby') {
+    return html`<section class="card controls"><p class="big-line">Opening the ${c.attempts === 'one' ? 'assignment' : 'practice'}…</p>
+      <p class="small muted">This takes a few seconds. If it doesn't open, press Try again.</p>
+      <div class="row wrap"><button data-action="ctl" data-op="retry">Try again</button>${solve}</div></section>`;
+  }
+  if (s.status === 'finished') return html`<section class="card controls"><p class="big-line">Closed. Scores are final.</p><div class="row wrap">${solve}<a class="button" href="#/teach/game/${s.id}/projector">Projector view</a></div>${exports}</section>`;
+  return html`<section class="card controls">
+    <p class="big-line">Open: students can join and submit any time.</p>
+    <p>${joined} ${joined === 1 ? 'student has' : 'students have'} opened it · ${submitted} submitted · ${c.attempts === 'one' ? 'one submission each' : 'unlimited submissions, best score counts'}</p>
+    <p class="small muted">Students find it on their class page. When you close it, anyone who saved work but never submitted is scored on what they saved${c.show_answers ? ', and everyone can see the answer key' : ''}.</p>
+    <div class="row wrap">${solve}<a class="button" href="#/teach/game/${s.id}/projector">Projector view</a>
+      <button class="danger" data-action="ctl" data-op="finish">Close it now</button></div>
+    ${exports}
+  </section>`;
+}
+
 function controls(st, c) {
   const s = st.session;
+  if (s.game_type === 'costs' && c.pace === 'self') return selfPacedControls(st, c);
   const total = roundsTotal(s.game_type, c);
   const prog = st.required?.length ? st.decisions.filter((d) => st.required.includes(d.team_id)).length : 0;
   const isT = s.game_type === 'pd_tournament';
   if (isT && s.status === 'finished') return '';
   return html`<section class="card controls">
     ${s.status === 'lobby' ? html`<div class="row spread"><p class="big-line">${plural(st.players.length, 'player')} joined · ${st.players.filter((p) => p.passed_check).length} passed the check</p>
-      <div class="row"><a class="button" href="#/teach/game/${s.id}/projector">Projector view</a><button class="primary big" data-action="ctl" data-op="start">Start game</button></div></div>` : ''}
+      <div class="row">${s.game_type === 'costs' ? html`<a class="button" href="#/teach/game/${s.id}/solve">Solve it on screen</a>` : ''}<a class="button" href="#/teach/game/${s.id}/projector">Projector view</a><button class="primary big" data-action="ctl" data-op="start">Start game</button></div></div>` : ''}
     ${['running', 'paused'].includes(s.status) && !isT ? html`
       <div class="ctrl-status"><div class="round-badge"><span class="rb-n">${s.round_no}</span><span class="rb-of">${total ? `of ${total}` : 'round'}</span></div>
         <div class="grow">${timerBar(s, s.stage === 'punish' ? 'Punishment stage' : s.stage === 'respond' ? 'Responses' : s.stage === 'chat' ? 'Chat closes in' : 'Round closes in')}
@@ -109,12 +135,14 @@ function controls(st, c) {
         <button data-action="ctl" data-op="extend" data-seconds="60">+1 minute</button>
         <button class="primary" data-action="ctl" data-op="end_stage">${s.game_type === 'costs' ? 'End and score now' : `End ${s.stage === 'chat' ? 'chat' : s.stage === 'punish' || s.stage === 'respond' ? 'stage' : 'round'} now`}</button>
         <a class="button" href="#/teach/game/${s.id}/projector">Projector view</a>
+        ${s.game_type === 'costs' ? html`<a class="button" href="#/teach/game/${s.id}/solve">Solve it on screen</a>` : ''}
         <button class="danger" data-action="ctl" data-op="finish">End game</button>
       </div>` : ''}
     ${!isT && s.status !== 'lobby' ? html`<div class="row wrap exports">
       <button data-action="export" data-kind="summary">Download grades (one row per student)</button>
       <button data-action="export" data-kind="detail">Download all rounds</button>
-      ${s.game_type === 'commons' && c.chat !== 'off' ? html`<button data-action="export-chat">Download chat log</button>` : ''}</div>` : ''}
+      ${s.game_type === 'commons' && c.chat !== 'off' ? html`<button data-action="export-chat">Download chat log</button>` : ''}
+      ${s.game_type === 'costs' && s.status === 'finished' ? html`<a class="button" href="#/teach/game/${s.id}/solve">Solve it on screen</a>` : ''}</div>` : ''}
   </section>`;
 }
 
@@ -408,10 +436,10 @@ function projector(st, c) {
   return html`<main class="projector gt-${t}">
     <a class="proj-exit" href="#/teach/game/${s.id}">Exit projector view</a>
     <h1>${s.title}</h1>
-    ${s.status === 'lobby' ? html`<div class="proj-join"><p>Go to</p><p class="proj-url">${siteUrl().replace(/^https?:\/\//, '')}</p>
+    ${s.status === 'lobby' || (t === 'costs' && c.pace === 'self' && s.status === 'running') ? html`<div class="proj-join"><p>Go to</p><p class="proj-url">${siteUrl().replace(/^https?:\/\//, '')}</p>
       <p>Sign in, join class <strong class="proj-code">${s.join_code}</strong>, then open <strong>${s.title}</strong>.</p>
       <p class="proj-count">${plural(st.players.length, 'player')} in</p></div>` : ''}
-    ${['running', 'paused'].includes(s.status) && t !== 'pd_tournament' ? html`<div class="proj-live">
+    ${['running', 'paused'].includes(s.status) && t !== 'pd_tournament' && !(t === 'costs' && c.pace === 'self') ? html`<div class="proj-live">
       ${t === 'costs' ? '' : html`<div class="proj-round">Round <strong>${s.round_no}</strong>${total ? ` of ${total}` : ''}</div>`}
       ${st.round_info?.market_price != null ? html`<p class="proj-price">Market price this round: <strong>${money(st.round_info.market_price, 2)}</strong></p>` : ''}
       ${timerBar(s)}<p class="proj-count">${prog} of ${st.required.length} ${t === 'costs' ? 'have saved work' : 'submitted'}</p></div>` : ''}

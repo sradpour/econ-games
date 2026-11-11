@@ -20,7 +20,7 @@ export function enterDemo(type) {
 function demoOptions(type) {
   const o = store.ui.demoOpts || {};
   if (type === 'commons') return { variant: o.simpleCommons ? 'simple' : 'fishery' };
-  if (type === 'costs') return { story: o.story || 'bakery', ...COST_STORIES[o.story || 'bakery'] };
+  if (type === 'costs') return { story: o.story || 'bakery', ...COST_STORIES[o.story || 'bakery'], level: o.easyCosts ? 'easy' : 'standard' };
   if (!MARKETS.includes(type)) return {};
   return { difficulty: o.hard ? 'hard' : 'normal', story: o.story || 'bakery', ...STORIES[o.story || 'bakery'] };
 }
@@ -37,6 +37,7 @@ export function renderDemo(route) {
       <h2>Market games</h2>
       <div class="row wrap">
         <label class="switch"><input type="checkbox" data-change="demo-hard" ${o.hard ? 'checked' : ''}> <span>Hard mode: work out your own cost table</span></label>
+        <label class="switch"><input type="checkbox" data-change="demo-easy-costs" ${o.easyCosts ? 'checked' : ''}> <span>Easy version of the costs game (only fixed and variable costs)</span></label>
         <label class="inline-label">Business <select data-change="demo-story">${Object.entries(STORIES).map(([k, v]) => html`<option value="${k}" ${(o.story || 'bakery') === k ? 'selected' : ''}>${v.business.charAt(0).toUpperCase() + v.business.slice(1)}</option>`)}</select></label>
       </div>
       <div class="type-grid">${['costs', ...MARKETS].map(card)}</div>
@@ -52,6 +53,7 @@ function card(t) {
 }
 
 on('demo-hard', (el) => setUi('demoOpts', { hard: el.checked }));
+on('demo-easy-costs', (el) => setUi('demoOpts', { easyCosts: el.checked }));
 on('demo-story', (el) => setUi('demoOpts', { story: el.value }));
 on('demo-variant', (el) => {
   store.ui.demoOpts = { ...(store.ui.demoOpts || {}), simpleCommons: el.dataset.variant === 'simple' };

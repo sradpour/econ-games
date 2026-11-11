@@ -143,6 +143,9 @@ export const DEFAULTS = {
   costs: {
     team_mode: 'teams', team_size: 4,
     round_seconds: 0,                      // 0 = no timer; the instructor ends the round
+    pace: 'live',                          // 'live': one round in class, the instructor ends it | 'self': open any time, individual, submit to be scored
+    attempts: 'unlimited',                 // self-paced only: 'one' (assignment) | 'unlimited' (practice; best score counts)
+    level: 'standard',                     // 'standard' | 'easy' (only rent, insurance, workers, ingredients and packaging)
     checks: 'on',                          // 'on': teams can check each worksheet step | 'off'
     show_answers: true,                    // show the answer key when the game ends
     leaderboard: 'end', auto_advance: false,
@@ -151,14 +154,14 @@ export const DEFAULTS = {
     output: '30,80,140,190,230,260,290,310,325,335', // total output with 1, 2, 3… workers
     wage: 120,                             // per worker per period
     material_name: 'flour', material_unit: 'lb', material_qty: 0.5, material_price: 1.2,
-    extras_name: 'yeast, salt and sugar', extras_cost: 0.15,
+    extras_name: 'yeast, salt and sugar', extras_cost: 0.1,
     package_name: 'paper bag', package_cost: 0.1,
     energy_name: 'gas for the oven', energy_cost: 0.75, batch_size: 5,
-    rent: 150, insurance: 20,              // paid even when closed
+    rent: 200, insurance: 20,              // paid even when closed
     lease_name: 'mixer and display case', lease: 60, // paid only on days you open
     sublet_name: 'a caterer', sublet: 80,  // income you give up by opening
     sunk_name: 'oven', sunk_cost: 2400, ad_cost: 50, license_cost: 300, // already paid
-    card_fee: 0.03,                        // share of every sale
+    card_fee: 0,                           // share of every sale (0 = no card fee bill)
     prices: '3,4,5,6,7,8,9,10',
   },
 };
@@ -206,6 +209,11 @@ export function normalizeConfig(gameType, cfg = {}) {
     out.card_fee = clamp(out.card_fee, 0, 0.5);
     out.auto_advance = false;
     if (out.checks !== 'off') out.checks = 'on';
+    if (out.pace !== 'self') out.pace = 'live';
+    if (out.attempts !== 'one') out.attempts = 'unlimited';
+    if (out.level !== 'easy') out.level = 'standard';
+    if (out.pace === 'self') { out.team_mode = 'individual'; out.round_seconds = 0; }
+    if (out.level === 'easy') { out.lease = 0; out.sublet = 0; out.card_fee = 0; out.energy_cost = 0; out.extras_cost = 0; }
   }
   if (out.team_mode !== 'teams') out.team_mode = 'individual';
   if ('wage' in base && gameType !== 'costs' && (cfg.wage !== undefined || cfg.mc_intercept === undefined)) {
@@ -424,6 +432,66 @@ export function scoreSchedule(model, schedule) {
   };
 }
 
+/**
+ * Self-paced costs game: score every submission that has not been scored yet.
+ * submitted: { team_id: { schedule, attempt, submitted_at } }, scored: { team_id: result payload }.
+ * The best attempt counts.
+ */
+export function scoreCostsSubmissions(rawConfig, submitted = {}, scored = {}) {
+  const m = costsModel(normalizeConfig('costs', rawConfig));
+  const results = [];
+  for (const [teamId, sub] of Object.entries(submitted || {})) {
+    const prev = scored?.[teamId];
+    const attempt = Math.max(1, Math.round(NUM(sub?.attempt, 1)));
+    if (prev && NUM(prev.attempt, 0) >= attempt) continue;
+    const sc = scoreSchedule(m, sub?.schedule || {});
+    const best = prev ? Math.max(sc.score, NUM(prev.best_score, 0)) : sc.score;
+    results.push({ round_no: 1, team_id: teamId, earnings: best,
+      payload: { ...sc, attempt, best_score: best, submitted_at: sub?.submitted_at ?? null, auto: false, cumulative: best } });
+  }
+  return results;
+}
+
+function costsPublic(m, rows, roundNo) {
+  const n = rows.length;
+  return {
+    round_no: roundNo, teams: n,
+    average_score: n ? round2(rows.reduce((s, r) => s + r.score, 0) / n) : null,
+    correct: m.supply.map(({ price, workers, q }) => ({ price, workers, q })),
+    class_average_q: m.c.price_list.map((p, i) => ({ price: p, q: n ? round2(rows.reduce((s, r) => s + r.per[i].q, 0) / n) : null })),
+    right_share: m.c.price_list.map((p, i) => ({ price: p, share: n ? rows.filter((r) => r.per[i].lost < 0.005).length / n : null })),
+  };
+}
+
+/**
+ * Close a self-paced costs game: anyone who saved work but never submitted is scored on what they saved;
+ * returns the result rows to write, the class summary and the final standings.
+ */
+export function closeCostsSelfPaced(rawConfig, teams, decisions = {}, scored = {}) {
+  const c = normalizeConfig('costs', rawConfig);
+  const m = costsModel(c);
+  const results = [];
+  const finalRows = {};
+  for (const t of teams) {
+    if (scored?.[t.id]) { finalRows[t.id] = scored[t.id]; continue; }
+    const d = decisions?.[t.id];
+    if (!d) continue;
+    const sc = scoreSchedule(m, d.schedule || {});
+    const payload = { ...sc, attempt: 0, best_score: sc.score, auto: true, cumulative: sc.score };
+    results.push({ round_no: 1, team_id: t.id, payload, earnings: sc.score });
+    finalRows[t.id] = payload;
+  }
+  const board = teams.map((t) => ({ team_id: t.id, name: t.name, total: round2(NUM(finalRows[t.id]?.best_score, 0)), rounds: finalRows[t.id] ? 1 : 0 }))
+    .sort((a, b) => b.total - a.total);
+  board.forEach((r, i) => { r.rank = i + 1; r.average = r.total; });
+  const pub = costsPublic(m, Object.values(finalRows), 1);
+  return {
+    results,
+    round_public: [{ round_no: 1, payload: pub }],
+    outputs: [{ kind: 'final', visibility: c.leaderboard === 'never' ? 'instructor' : 'students', payload: { leaderboard: board, ranked_by: 'total', reveal: false } }],
+  };
+}
+
 function resolveCosts(ctx) {
   const { config: c, state, round_no, teams } = ctx;
   const model = costsModel(c);
@@ -438,14 +506,7 @@ function resolveCosts(ctx) {
     payload.cumulative = sc.score;
     results.push({ round_no, team_id: t.id, payload, earnings: sc.score });
   }
-  const n = results.length;
-  const pub = {
-    round_no, teams: n,
-    average_score: n ? round2(results.reduce((s, r) => s + r.payload.score, 0) / n) : null,
-    correct: model.supply.map(({ price, workers, q }) => ({ price, workers, q })),
-    class_average_q: model.c.price_list.map((p, i) => ({ price: p, q: n ? round2(results.reduce((s, r) => s + r.payload.per[i].q, 0) / n) : null })),
-    right_share: model.c.price_list.map((p, i) => ({ price: p, share: n ? results.filter((r) => r.payload.per[i].lost < 0.005).length / n : null })),
-  };
+  const pub = costsPublic(model, results.map((r) => r.payload), round_no);
   if (c.leaderboard === 'live') pub.leaderboard = leaderboard(teams, state);
   return { state, results, round_public: [{ round_no, payload: pub }], assignments: [], finished: true };
 }

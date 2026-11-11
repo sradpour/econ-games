@@ -23,34 +23,45 @@ export const COST_STORIES = {
     package_name: 'cup and lid', energy_name: 'electricity for the machines', lease_name: 'grinder and fridge', sublet_name: 'a juice vendor', sunk_name: 'espresso machine' },
 };
 
-// How each bill in the costs game should be sorted (step 1). Order is deliberately mixed.
-export const BILL_KINDS = [
-  ['sunk', 'Already paid; we can\'t get it back'],
-  ['fixed', 'We pay it even if we close'],
-  ['opening', 'We pay it only if we open (same amount however much we make)'],
-  ['per_unit', 'Goes up with every unit we make'],
-  ['per_worker', 'Goes up with every worker we hire'],
-  ['share', 'A share of every sale'],
-  ['forgone', 'Money we give up by opening'],
-];
+// The costs game's bills. Each one is sorted twice in step 1: does it still cost you if you close
+// (yes / no / already paid), and is it fixed or variable? The easy version only has fixed and variable costs.
+export const CLOSE_CHOICES = [['yes', 'Yes'], ['no', 'No'], ['sunk', 'Already paid']];
+export const FV_CHOICES = [['fixed', 'Fixed'], ['variable', 'Variable']];
 export function costBills(c) {
   const P = c.period;
+  const easy = c.level === 'easy';
   const one = /^[aeiou]/i.test(c.package_name) ? 'an' : 'a';
-  return [
-    { id: 'rent', kind: 'fixed', text: `Rent: ${money2(c.rent)} per ${P}. You signed a one-year rental agreement.` },
-    { id: 'sunk', kind: 'sunk', text: `The ${c.sunk_name} you bought last year for ${money2(c.sunk_cost)}. It can't be returned or resold.` },
-    { id: 'lease', kind: 'opening', text: `Leasing the ${c.lease_name}: ${money2(c.lease)} per ${P}. You can pause the lease on any ${P} you don't open.` },
-    { id: 'material', kind: 'per_unit', text: `${cap(c.material_name)}: each ${c.product} uses ${c.material_qty} ${c.material_unit}, at ${money2(c.material_price)} per ${c.material_unit}.` },
-    { id: 'insurance', kind: 'fixed', text: `Insurance: ${money2(c.insurance)} per ${P}, due whether or not you open.` },
-    { id: 'wages', kind: 'per_worker', text: `${cap(c.worker_plural)}: ${money2(c.wage)} each per ${P}. There is room for up to ${c.output_list.length} (see the production table).` },
-    { id: 'extras', kind: 'per_unit', text: `${cap(c.extras_name)}: ${money2(c.extras_cost)} per ${c.product}.` },
-    { id: 'ad', kind: 'sunk', text: `An ad in the local paper for this ${P}: ${money2(c.ad_cost)}, already paid, no refunds.` },
-    { id: 'package', kind: 'per_unit', text: `${cap(c.package_name)}s: ${money2(c.package_cost)} each. Every ${c.product} goes in ${one} ${c.package_name}.` },
-    { id: 'sublet', kind: 'forgone', text: `${cap(c.sublet_name)} will pay you ${money2(c.sublet)} to use your space on any ${P} you close.` },
-    { id: 'energy', kind: 'per_unit', text: `${cap(c.energy_name)}: ${money2(c.energy_cost)} for every batch of ${c.batch_size} ${c.product_plural}.` },
-    { id: 'license', kind: 'sunk', text: `Business license: ${money2(c.license_cost)} for the year, paid in January.` },
-    { id: 'card', kind: 'share', text: `Card fees: ${pctTxt(c.card_fee)} of every sale. Every customer pays by card.` },
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const all = [
+    { id: 'rent', close: 'yes', fv: 'fixed', item: 'Rent', amount: c.rent, per: `per ${P}`,
+      text: `Rent: ${money2(c.rent)} per ${P}. You signed a one-year rental agreement.` },
+    { id: 'sunk', close: 'sunk', fv: null, item: `${cap(c.sunk_name)} (bought last year)`, amount: c.sunk_cost, per: 'once', skip: easy,
+      text: `The ${c.sunk_name} you bought last year for ${money2(c.sunk_cost)}. It can't be returned or resold.` },
+    { id: 'lease', close: 'no', fv: 'fixed', item: `Lease: ${c.lease_name}`, amount: c.lease, per: `per ${P}`, skip: easy || !(c.lease > 0),
+      text: `Leasing the ${c.lease_name}: ${money2(c.lease)} per ${P}. You can pause the lease on any ${P} you don't open.` },
+    { id: 'material', close: 'no', fv: 'variable', item: cap(c.material_name), amount: r2(c.material_qty * c.material_price), per: `per ${c.product}`,
+      note: `${c.material_qty} ${c.material_unit} × ${money2(c.material_price)}`,
+      text: `${cap(c.material_name)}: each ${c.product} uses ${c.material_qty} ${c.material_unit}, at ${money2(c.material_price)} per ${c.material_unit}.` },
+    { id: 'insurance', close: 'yes', fv: 'fixed', item: 'Insurance', amount: c.insurance, per: `per ${P}`,
+      text: `Insurance: ${money2(c.insurance)} per ${P}, due whether or not you open.` },
+    { id: 'wages', close: 'no', fv: 'variable', item: cap(c.worker_plural), amount: c.wage, per: `per ${c.worker}`,
+      text: `${cap(c.worker_plural)}: ${money2(c.wage)} each per ${P}. There is room for up to ${c.output_list.length} (see the production table).` },
+    { id: 'extras', close: 'no', fv: 'variable', item: cap(c.extras_name), amount: c.extras_cost, per: `per ${c.product}`, skip: !(c.extras_cost > 0),
+      text: `${cap(c.extras_name)}: ${money2(c.extras_cost)} per ${c.product}.` },
+    { id: 'ad', close: 'sunk', fv: null, item: 'Newspaper ad (prepaid)', amount: c.ad_cost, per: 'once', skip: easy || !(c.ad_cost > 0),
+      text: `An ad in the local paper for this ${P}: ${money2(c.ad_cost)}, already paid, no refunds.` },
+    { id: 'package', close: 'no', fv: 'variable', item: cap(c.package_name) + 's', amount: c.package_cost, per: `per ${c.product}`, skip: !(c.package_cost > 0),
+      text: `${cap(c.package_name)}s: ${money2(c.package_cost)} each. Every ${c.product} goes in ${one} ${c.package_name}.` },
+    { id: 'sublet', close: 'no', fv: 'fixed', item: `Income given up (${c.sublet_name})`, amount: c.sublet, per: `per ${P}`, skip: easy || !(c.sublet > 0),
+      text: `${cap(c.sublet_name)} will pay you ${money2(c.sublet)} to use your space on any ${P} you close.` },
+    { id: 'energy', close: 'no', fv: 'variable', item: cap(c.energy_name), amount: c.energy_cost, per: `per batch of ${c.batch_size} ${c.product_plural}`, skip: !(c.energy_cost > 0),
+      text: `${cap(c.energy_name)}: ${money2(c.energy_cost)} for every batch of ${c.batch_size} ${c.product_plural}.` },
+    { id: 'license', close: 'sunk', fv: null, item: 'Business license (this year)', amount: c.license_cost, per: 'once', skip: easy || !(c.license_cost > 0),
+      text: `Business license: ${money2(c.license_cost)} for the year, paid in January.` },
+    { id: 'card', close: 'no', fv: 'variable', item: 'Card fees', amount: r2(c.card_fee * 100), per: '% of sales', skip: !(c.card_fee > 0),
+      text: `Card fees: ${pctTxt(c.card_fee)} of every sale. Every customer pays by card.` },
   ];
+  return all.filter((b) => !b.skip);
 }
 
 const cap = (t) => String(t).charAt(0).toUpperCase() + String(t).slice(1);
@@ -189,10 +200,13 @@ export const GAME_INFO = {
     rules: (c) => [
       `${c.team_mode === 'teams' ? 'Your team runs' : 'You run'} ${a_an(c.business)} ${c.business} in a competitive market: you take the price as given and sell every ${c.product} you make at that price.`,
       `Your job: decide how many ${c.worker_plural} to hire, and so how many ${c.product_plural} to make, at each possible price from ${money2(c.price_list[0])} to ${money2(c.price_list[c.price_list.length - 1])}. That list is your supply schedule.`,
-      `You get your ${c.business}'s bills for one ${c.period} and a production table. Some bills matter for that decision and some don't. A five-step worksheet walks you through it${c.checks === 'on' ? ', and you can check each step' : ''}.`,
+      `You get your ${c.business}'s bills for one ${c.period} and a production table. ${c.level === 'easy' ? 'Each bill is either a fixed or a variable cost.' : 'Some bills matter for that decision and some don\'t.'} A five-step worksheet walks you through it${c.checks === 'on' ? ', and you can check each step' : ''}. Every table can be copied into Excel, and you can paste numbers back in from Excel.`,
       ...(c.team_mode === 'teams' ? ['Anyone on your team can type in the worksheet. Changes are saved for the whole team.'] : []),
       'Scoring: at each price, how close your profit comes to the best possible (0% = the worst choice at that price, 100% = the best). Your score is the average over all prices.',
-      c.round_seconds ? `You have ${Math.round(c.round_seconds / 60)} minutes.` : 'Your instructor ends the game when time is up.',
+      c.pace === 'self'
+        ? (c.attempts === 'one' ? 'Work at your own pace; your work saves as you go. When you are done, submit once to be scored.'
+          : 'Work at your own pace; your work saves as you go. Submit to see your score, then improve and submit again as often as you like: your best score counts.')
+        : c.round_seconds ? `You have ${Math.round(c.round_seconds / 60)} minutes.` : 'Your instructor ends the game when time is up.',
     ],
   },
 };
@@ -235,10 +249,18 @@ const display = [
   S('reveal_at_end', "Reveal everyone's decisions when the game ends", 'bool', ''),
 ];
 
+const live = (c) => c.pace !== 'self';
+const std = (c) => c.level !== 'easy';
 const costSettings = [
-  S('team_mode', 'Play as', 'select', 'Anyone on a team can edit the shared worksheet.', { options: [['teams', 'Teams'], ['individual', 'Individuals']] }),
-  S('team_size', 'Max team size', 'number', 'Students create, join and name their own teams.', { min: 1, max: 8, step: 1, showIf: (c) => c.team_mode === 'teams' }),
-  S('round_seconds', 'Time limit (seconds)', 'number', '0 = no timer: you end the game. 1800 = 30 minutes.', { min: 0, max: 7200, step: 60 }),
+  S('pace', 'How it runs', 'select', 'Self-paced: opens as soon as you create it (no Start button). Students join any time, work on their own and submit to be scored. You close it when you are done.',
+    { options: [['live', 'Live in class: you start and end it'], ['self', 'Self-paced: assignment or practice']] }),
+  S('attempts', 'Submissions', 'select', 'One: students see the full answer after submitting. Unlimited: they see which prices they got right and can try again; their best score counts and the answer key appears when you close the game.',
+    { options: [['unlimited', 'Unlimited (practice)'], ['one', 'One (assignment)']], showIf: (c) => c.pace === 'self' }),
+  S('level', 'Version', 'select', 'Easy: only rent and insurance (fixed) and workers and ingredients (variable). Standard adds costs already paid, a lease you can pause, and income you give up by opening.',
+    { options: [['standard', 'Standard'], ['easy', 'Easy: only fixed and variable costs']] }),
+  S('team_mode', 'Play as', 'select', 'Anyone on a team can edit the shared worksheet.', { options: [['teams', 'Teams'], ['individual', 'Individuals']], showIf: live }),
+  S('team_size', 'Max team size', 'number', 'Students create, join and name their own teams.', { min: 1, max: 8, step: 1, showIf: (c) => live(c) && c.team_mode === 'teams' }),
+  S('round_seconds', 'Time limit (seconds)', 'number', '0 = no timer: you end the game. 1800 = 30 minutes.', { min: 0, max: 7200, step: 60, showIf: live }),
   S('checks', 'Worksheet checking', 'select', 'Teams can check each step as they go. Only the supply schedule is scored.', { options: [['on', 'On: teams can check each step'], ['off', 'Off: no checking']] }),
   S('show_answers', 'Show the answer key when the game ends', 'bool', ''),
   S('story', 'Business', 'select', 'Fills in the names below; you can edit them.', { options: [['bakery', 'Bakery (loaves, bakers)'], ['pizza', 'Pizzeria (pizzas, cooks)'], ['coffee', 'Coffee cart (cups, baristas)']] }),
@@ -248,16 +270,16 @@ const costSettings = [
   S('wage', 'Pay per worker per period ($)', 'number', '', { min: 0, step: 5 }),
   S('material_name', 'Main ingredient', 'text', ''), S('material_unit', 'Its unit', 'text', ''),
   S('material_qty', 'Amount per unit of product', 'number', '', { min: 0, step: 0.05 }), S('material_price', 'Price per unit of ingredient ($)', 'number', '', { min: 0, step: 0.05 }),
-  S('extras_name', 'Other ingredients', 'text', ''), S('extras_cost', 'Other ingredients per unit ($)', 'number', '', { min: 0, step: 0.05 }),
+  S('extras_name', 'Other ingredients', 'text', '', { showIf: std }), S('extras_cost', 'Other ingredients per unit ($)', 'number', '', { min: 0, step: 0.05, showIf: std }),
   S('package_name', 'Packaging', 'text', ''), S('package_cost', 'Packaging per unit ($)', 'number', '', { min: 0, step: 0.05 }),
-  S('energy_name', 'Energy', 'text', ''), S('energy_cost', 'Energy per batch ($)', 'number', '', { min: 0, step: 0.05 }),
-  S('batch_size', 'Units per batch', 'number', 'A partial batch costs as much as a full one.', { min: 1, step: 1 }),
+  S('energy_name', 'Energy', 'text', '', { showIf: std }), S('energy_cost', 'Energy per batch ($)', 'number', '', { min: 0, step: 0.05, showIf: std }),
+  S('batch_size', 'Units per batch', 'number', 'A partial batch costs as much as a full one.', { min: 1, step: 1, showIf: std }),
   S('rent', 'Rent per period ($)', 'number', 'Paid even when closed.', { min: 0, step: 10 }), S('insurance', 'Insurance per period ($)', 'number', 'Paid even when closed.', { min: 0, step: 5 }),
-  S('lease_name', 'Leased equipment', 'text', ''), S('lease', 'Equipment lease per period ($)', 'number', 'Paid only when open.', { min: 0, step: 5 }),
-  S('sublet_name', 'Who pays to use the space when closed', 'text', ''), S('sublet', 'They pay ($ per period)', 'number', 'Income given up by opening (an opportunity cost).', { min: 0, step: 5 }),
-  S('sunk_name', 'Equipment already bought', 'text', ''), S('sunk_cost', 'Its price ($, sunk)', 'number', '', { min: 0, step: 100 }),
-  S('ad_cost', 'Prepaid ad ($, sunk)', 'number', '', { min: 0, step: 10 }), S('license_cost', 'Yearly license ($, sunk)', 'number', '', { min: 0, step: 10 }),
-  S('card_fee', 'Card fee (share of sales)', 'number', '0.03 = 3%.', { min: 0, max: 0.5, step: 0.01 }),
+  S('lease_name', 'Leased equipment', 'text', '', { showIf: std }), S('lease', 'Equipment lease per period ($)', 'number', 'Paid only when open.', { min: 0, step: 5, showIf: std }),
+  S('sublet_name', 'Who pays to use the space when closed', 'text', '', { showIf: std }), S('sublet', 'They pay ($ per period)', 'number', 'Income given up by opening (an opportunity cost).', { min: 0, step: 5, showIf: std }),
+  S('sunk_name', 'Equipment already bought', 'text', '', { showIf: std }), S('sunk_cost', 'Its price ($, sunk)', 'number', '', { min: 0, step: 100, showIf: std }),
+  S('ad_cost', 'Prepaid ad ($, sunk)', 'number', '', { min: 0, step: 10, showIf: std }), S('license_cost', 'Yearly license ($, sunk)', 'number', '', { min: 0, step: 10, showIf: std }),
+  S('card_fee', 'Card fee (share of sales)', 'number', '0 = no card fee. 0.03 = 3% of every sale.', { min: 0, max: 0.5, step: 0.01, showIf: std }),
   S('prices', 'Prices in the supply schedule', 'text', 'Comma-separated, up to 12.', { maxlength: 80 }),
   S('leaderboard', 'Leaderboard', 'select', '', { options: [['end', 'Show at the end'], ['never', 'Never show students']] }),
 ];

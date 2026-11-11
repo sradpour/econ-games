@@ -813,3 +813,11 @@ tr.miss td { background: color-mix(in srgb, var(--neg) 7%, transparent); }
 .board tbody tr.peek-row .mini tbody tr td:first-child, .board tbody tr.peek-row .mini thead tr th:first-child { text-align: left; }
 .board tbody tr.peek-row .mini thead tr th:nth-child(n) { color: var(--muted); font-weight: 700; font-size: .8rem; }
 .board tbody tr.peek-row .mini tbody tr.miss td:nth-child(n) { background: color-mix(in srgb, var(--neg) 7%, transparent); }
+/* Copy-to-Excel buttons and the costs worksheet tables */
+.copyable { margin: 6px 0 10px; }
+.copy-btn { font-size: .85rem; margin-top: 4px; }
+.cw .sortbills td { vertical-align: middle; }
+.cw .sortbills td:nth-child(2) { text-align: left; min-width: 220px; white-space: normal; }
+.cw .sortbills select { min-width: 150px; }
+.cw .costlist td:first-child, .costlist td:first-child { text-align: left; }
+.solve-tools .row { gap: 8px; }

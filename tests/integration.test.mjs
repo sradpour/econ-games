@@ -24,7 +24,7 @@ before(async () => {
   execFileSync('psql', [...PSQL, '-c', 'drop database if exists econ_it', '-c', 'create database econ_it']);
   execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', 'tests/stubs.sql']);
   execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', 'supabase/migrations/0001_schema.sql']);
-  for (const m of ['0003_admin_management', '0004_tournament_progress', '0005_strategy_names', '0006_commons', '0007_round_info', '0008_costs', '0009_submit_no_deadlock', '0010_demo_translator']) {
+  for (const m of ['0003_admin_management', '0004_tournament_progress', '0005_strategy_names', '0006_commons', '0007_round_info', '0008_costs', '0009_submit_no_deadlock', '0010_demo_translator', '0011_costs_self_paced']) {
     execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', `supabase/migrations/${m}.sql`]);
   }
   await sql(`insert into private.app_config(key, value) values ('engine_url', 'local-queue') on conflict (key) do update set value = excluded.value`);
@@ -327,8 +327,8 @@ test('costs game: any teammate saves the shared worksheet; nothing ends until th
   assert.equal(g.session.stage, 'decide');
   assert.equal(g.team.name, 'Rye');
   // Not the captain, still allowed to save
-  await as(ps[2])('submit_decision', { p_session: s.id, p_payload: { v: { 'mp:1': '30' }, schedule: { 3: 0, 4: 0, 5: 5, 6: 7, 7: 7, 8: 8, 9: 8, 10: 9 } } });
-  await as(ps[1])('submit_decision', { p_session: s.id, p_payload: { v: { 'mp:1': '30', 'mp:2': '50' }, schedule: { 3: 0, 4: 0, 5: 5, 6: 7, 7: 7, 8: 8, 9: 8, 10: 9 } } });
+  await as(ps[2])('submit_decision', { p_session: s.id, p_payload: { v: { 'mp:1': '30' }, schedule: { 3: 0, 4: 0, 5: 7, 6: 7, 7: 8, 8: 8, 9: 9, 10: 9 } } });
+  await as(ps[1])('submit_decision', { p_session: s.id, p_payload: { v: { 'mp:1': '30', 'mp:2': '50' }, schedule: { 3: 0, 4: 0, 5: 7, 6: 7, 7: 8, 8: 8, 9: 9, 10: 9 } } });
   g = await as(ps[0])('get_state', { p_session: s.id });
   assert.equal(g.me.decision.v['mp:2'], '50', 'teammates see the latest saved worksheet');
   const other = await as(ps[3])('get_state', { p_session: s.id });
@@ -349,6 +349,67 @@ test('costs game: any teammate saves the shared worksheet; nothing ends until th
   g = await as(ps[1])('get_state', { p_session: s.id });
   assert.equal(g.results[0].score, 100);
   assert.equal(g.public[0].correct.length, 8);
+});
+
+test('costs game, self-paced: opens without Start, students join any time, submissions scored, attempts enforced', async () => {
+  const T = as('siavash.radpour@stockton.edu');
+  const best = { 3: 0, 4: 0, 5: 7, 6: 7, 7: 8, 8: 8, 9: 9, 10: 9 };
+  const worse = { 3: 10, 4: 10, 5: 10, 6: 10, 7: 10, 8: 10, 9: 10, 10: 10 };
+  // Practice: unlimited attempts, best counts
+  const s = await T('create_session', { p_class: classId, p_game_type: 'costs', p_title: 'Costs homework',
+    p_config: { pace: 'self', attempts: 'unlimited', team_mode: 'teams' } });
+  await drain();
+  let st = await T('instructor_state', { p_session: s.id });
+  assert.equal(st.session.status, 'running', 'opens by itself');
+  const [a, b, c] = students.slice(0, 3);
+  for (const e of [a, b]) { await as(e)('join_session', { p_session: s.id }); await as(e)('pass_check', { p_session: s.id }); }
+  let g = await as(a)('get_state', { p_session: s.id });
+  assert.equal(g.session.team_mode, 'individual');
+  assert.equal(g.me.required, true, 'a late joiner can work right away');
+  await as(a)('submit_decision', { p_session: s.id, p_payload: { v: { 'mp:1': '30' }, schedule: worse } });
+  await as(a)('costs_submit', { p_session: s.id, p_payload: { v: {}, schedule: worse } });
+  await drain();
+  g = await as(a)('get_state', { p_session: s.id });
+  assert.equal(g.results.length, 1);
+  assert.equal(g.results[0].attempt, 1);
+  assert.ok(g.results[0].score < 70);
+  assert.equal((await as(a)('costs_submit', { p_session: s.id, p_payload: { v: {}, schedule: best } })).attempt, 2);
+  await drain();
+  await as(a)('costs_submit', { p_session: s.id, p_payload: { v: {}, schedule: worse } });
+  await drain();
+  g = await as(a)('get_state', { p_session: s.id });
+  assert.equal(g.results[0].attempt, 3);
+  assert.equal(g.results[0].best_score, 100, 'best attempt counts');
+  // b only saves; c joins after a has finished
+  await as(b)('submit_decision', { p_session: s.id, p_payload: { v: {}, schedule: best } });
+  await as(c)('join_session', { p_session: s.id }); await as(c)('pass_check', { p_session: s.id });
+  await T('instructor_control', { p_session: s.id, p_action: 'finish' });
+  await drain();
+  st = await T('instructor_state', { p_session: s.id });
+  assert.equal(st.session.status, 'finished');
+  const lb = st.outputs.final.leaderboard;
+  assert.equal(lb.length, 3);
+  assert.deepEqual(lb.map((x) => x.total), [100, 100, 0]);
+  const rb = st.results.find((r) => r.team_id === lb.find((x) => x.name.startsWith('Student 2')).team_id);
+  assert.equal(rb.payload.auto, true, 'saved work is scored at closing');
+  await fails(as(a)('costs_submit', { p_session: s.id, p_payload: { schedule: best } }), /closed/);
+
+  // Assignment: one attempt
+  const s2 = await T('create_session', { p_class: classId, p_game_type: 'costs', p_title: 'Costs quiz', p_config: { pace: 'self', attempts: 'one', level: 'easy' } });
+  await drain();
+  await as(a)('join_session', { p_session: s2.id });
+  await fails(as(a)('costs_submit', { p_session: s2.id, p_payload: { schedule: best } }), /quick check/);
+  await as(a)('pass_check', { p_session: s2.id });
+  await as(a)('costs_submit', { p_session: s2.id, p_payload: { schedule: best } });
+  await fails(as(a)('costs_submit', { p_session: s2.id, p_payload: { schedule: best } }), /already submitted/);
+  await drain();
+  g = await as(a)('get_state', { p_session: s2.id });
+  assert.equal(g.results.length, 1);
+  // Live costs games are untouched: they still wait for Start
+  const s3 = await T('create_session', { p_class: classId, p_game_type: 'costs', p_title: 'Live costs', p_config: {} });
+  await drain();
+  assert.equal((await T('instructor_state', { p_session: s3.id })).session.status, 'lobby');
+  await fails(as(a)('costs_submit', { p_session: s3.id, p_payload: { schedule: best } }), /not self-paced/);
 });
 
 test('strategy tournament: save, rate limit hook, results saved by instructor', async () => {

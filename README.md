@@ -15,6 +15,11 @@ Free, self-hosted classroom economics games for introductory microeconomics, reb
 - Ultimatum and dictator games.
 - Tragedy of the commons: groups of three share a fishing lake that regrows from what is left (hidden number of seasons), with an optional anonymous group chat before each decision. A simple extract-or-wait version is a setting.
 - Costs and the supply curve: teams get a bakery's (pizzeria's, coffee cart's) bills and a production table, and work through a shared five-step worksheet (sort the bills; marginal product; FC/VC/TC; AVC/AFC/ATC/MC; supply schedule) modelled on the classic cost worksheet. Anyone on a team can edit; teams can check each step. Only the supply schedule is scored: at each price, how close the team's profit is to the best possible. The instructor ends the game; an answer key and the class's average supply curve are shown at the end.
+  - Sorting the bills takes two answers per bill: "Do you pay it if you close today?" (yes / no / already paid) and, for bills you pay, fixed or variable. The game then builds a list of the fixed and variable costs that students can copy straight into Excel.
+  - **Assignment / practice mode** (Pace: "Any time"): the game opens as soon as it is created, with no Start button. Students join whenever they like and work on their own, then press Submit to be scored. The instructor chooses one attempt (assignment) or unlimited attempts (practice, best score counts). Closing the game scores any saved but unsubmitted work.
+  - **Easy version:** only rent, insurance, workers, ingredients and packaging (no opening costs, no income given up, no per-batch energy, no card fee).
+  - **Solve it on screen:** the instructor's control page has a "Solve it on screen" page with the same worksheet, for working the problem in front of the class before or after the game. It can fill in each step's answers or clear them.
+- Excel-friendly tables: every cost table (in this game and in the market games) has a "Copy table" button that copies clean numbers (no $ or commas) ready to paste into Excel or Google Sheets. Pasting a block of cells from Excel into a worksheet fills its inputs down and across.
 
 Every game also has a **demo mode** (`#/demo`, no sign-in needed): play alone against simulated players, with no timer and nothing saved.
 

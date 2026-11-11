@@ -6,6 +6,9 @@ import { serverNow } from '../app.js';
 import { submit } from './play.js';
 import { commonsStageLabel, commonsPanel, commonsLastResult, commonsPublic, commonsHistory } from './commons.js';
 import { costsLive, costsFinal } from './costs.js';
+import { copyButton } from '../lib/tables.js';
+
+const copyable = (table, label) => html`<div class="copyable"><div class="scroll">${table}</div>${copyButton(label)}</div>`;
 
 const MARKET = ['competitive', 'monopolistic', 'oligopoly', 'monopoly'];
 
@@ -245,22 +248,23 @@ function productionBlock(g, c) {
   const mat = c.material_qty * c.material_price;
   return html`<details class="costs production">
     <summary>Your ${c.business}: inputs and costs</summary>
-    <ul class="inputs">
-      <li><span>Labor</span><strong>${money(c.wage, 2)} per hour</strong></li>
-      <li><span>${cap(c.material_name)}</span><strong>${c.material_qty} ${c.material_unit} per ${c.product} at ${money(c.material_price, 2)} per ${c.material_unit}</strong></li>
-      <li><span>Rent</span><strong>${money(rentOf(c))} per round, even if you close</strong></li>
-      <li><span>Equipment and utilities</span><strong>${money(c.fixed_cost * c.avoidable_share)} per round, only when open</strong></li>
-    </ul>
+    <h3>Your costs</h3>
+    ${copyable(html`<table class="mini costlist"><thead><tr><th>Item</th><th>Fixed or variable</th><th>Still paid if you sit out</th><th>Amount ($)</th><th>Per</th></tr></thead><tbody>
+      <tr><td>Rent</td><td>Fixed</td><td>Yes</td><td data-copy="${rentOf(c)}">${num(rentOf(c), 2)}</td><td>per round</td></tr>
+      <tr><td>Equipment and utilities</td><td>Fixed</td><td>No</td><td data-copy="${c.fixed_cost * c.avoidable_share}">${num(c.fixed_cost * c.avoidable_share, 2)}</td><td>per round</td></tr>
+      <tr><td>Labor</td><td>Variable</td><td>No</td><td data-copy="${c.wage}">${num(c.wage, 2)}</td><td>per hour</td></tr>
+      <tr><td>${cap(c.material_name)}</td><td>Variable</td><td>No</td><td data-copy="${Math.round(mat * 10000) / 10000}">${num(mat, 2)}</td><td>per ${c.product} (${c.material_qty} ${c.material_unit} × ${money(c.material_price, 2)})</td></tr>
+    </tbody></table>`, 'Copy cost list')}
     <h3>Production table</h3>
     <p class="small muted">Labor hours needed to make each amount. Each extra hour adds fewer ${c.product_plural} than the last.</p>
-    <div class="scroll"><table class="mini"><thead><tr><th>${cap(c.product_plural)}</th><th>Labor hours needed</th>${hard ? '' : html`<th>Extra ${c.product_plural} per extra hour</th>`}</tr></thead><tbody>
+    ${copyable(html`<table class="mini"><thead><tr><th>${cap(c.product_plural)}</th><th>Labor hours needed</th>${hard ? '' : html`<th>Extra ${c.product_plural} per extra hour</th>`}</tr></thead><tbody>
       ${STEPS.map((q, i) => html`<tr><td>${q}</td><td>${num(hoursAt(q, c), 2)}</td>${hard ? '' : html`<td>${i === 0 ? '–' : num(10 / (hoursAt(q, c) - hoursAt(STEPS[i - 1], c)), 2)}</td>`}</tr>`)}
-    </tbody></table></div>
+    </tbody></table>`)}
     ${hard ? worksheet(g, c) : html`
       <h3>Cost table</h3>
-      <div class="scroll"><table class="mini"><thead><tr><th>${cap(c.product_plural)}</th><th>Labor cost</th><th>${cap(c.material_name)}</th><th>Fixed cost</th><th>Total cost</th><th>Average cost</th><th>Marginal cost</th></tr></thead><tbody>
-        ${STEPS.map((q) => { const lab = hoursAt(q, c) * c.wage, m2 = q * mat, tc = c.fixed_cost + lab + m2; return html`<tr><td>${q}</td><td>${money(lab)}</td><td>${money(m2)}</td><td>${money(c.fixed_cost)}</td><td>${money(tc)}</td><td>${q ? money(tc / q, 2) : '–'}</td><td>${money(marginalCost(q, c), 2)}</td></tr>`; })}
-      </tbody></table></div>
+      ${copyable(html`<table class="mini"><thead><tr><th>${cap(c.product_plural)}</th><th>Labor cost</th><th>${cap(c.material_name)}</th><th>Fixed cost</th><th>Total cost</th><th>Average cost</th><th>Marginal cost</th></tr></thead><tbody>
+        ${STEPS.map((q) => { const lab = hoursAt(q, c) * c.wage, m2 = q * mat, tc = c.fixed_cost + lab + m2; return html`<tr><td>${q}</td><td>${money(lab, 2)}</td><td>${money(m2, 2)}</td><td>${money(c.fixed_cost, 2)}</td><td>${money(tc, 2)}</td><td>${q ? money(tc / q, 2) : '–'}</td><td>${money(marginalCost(q, c), 2)}</td></tr>`; })}
+      </tbody></table>`)}
       <p class="hint">Marginal cost = wage ÷ extra ${c.product_plural} per hour + ${c.material_name} per ${c.product}. At ${4 * c.productivity_half} ${c.product_plural}: ${money(c.wage, 2)} ÷ ${num(marginalProduct(4 * c.productivity_half, c), 2)} + ${money(mat, 2)} = ${money(marginalCost(4 * c.productivity_half, c), 2)}.</p>`}
   </details>`;
 }
@@ -305,14 +309,15 @@ function worksheet(g, c) {
   const total = Object.keys(ws.marks).length;
   return html`<h3>Your cost worksheet</h3>
     <p class="small muted">Fill in your costs from the production table and input prices. Fixed cost is ${money(c.fixed_cost)} (rent + equipment). Marginal cost per unit is the change in total cost from the row above, divided by 10. Your answers are saved on this device.</p>
-    <div class="scroll"><table class="mini worksheet"><thead><tr><th>${cap(c.product_plural)}</th><th>Labor hours</th>${WS_COLS.map(([, l]) => html`<th>${l}</th>`)}</tr></thead><tbody>
+    <div class="copyable"><div class="scroll"><table class="mini worksheet"><thead><tr><th>${cap(c.product_plural)}</th><th>Labor hours</th>${WS_COLS.map(([, l]) => html`<th>${l}</th>`)}</tr></thead><tbody>
       ${WS_ROWS.map((q) => html`<tr><td>${q}</td><td>${num(hoursAt(q, c), 2)}</td>${WS_COLS.map(([k]) => {
         if (k === 'mc' && q === 0) return html`<td>–</td>`;
         const key = `${q}:${k}`;
         const mark = ws.marks[key];
         return html`<td class="${mark || ''}"><input type="number" step="0.01" inputmode="decimal" name="ws_${q}_${k}" value="${ws.values[key] ?? ''}" data-input="ws-input" data-k="${key}" aria-label="${k} at ${q}"></td>`;
       })}</tr>`)}
-    </tbody></table></div>
+    </tbody></table></div>${copyButton()}</div>
+    <p class="small muted">Tip: do the math in Excel, then copy a column of results and paste it into the first cell of that column here.</p>
     <div class="row wrap"><button type="button" data-action="ws-check">Check my answers</button><button type="button" class="link" data-action="ws-clear">Clear</button>
       ${total ? html`<span class="${correct === total ? 'saved' : 'small'}">${correct} of ${total} filled cells correct</span>` : ''}</div>`;
 }
@@ -331,7 +336,7 @@ on('ws-check', () => {
   for (const [k, v] of Object.entries(ws.values)) {
     if (v === '' || v === null || v === undefined || ans[k] === undefined) continue;
     const tol = k.endsWith(':mc') ? 0.06 : Math.max(0.51, Math.abs(ans[k]) * 0.005);
-    ws.marks[k] = Math.abs(Number(v) - ans[k]) <= tol ? 'ok' : 'bad';
+    ws.marks[k] = Math.abs(Number(String(v).replace(/[$,\s]/g, '').replace('−', '-')) - ans[k]) <= tol ? 'ok' : 'bad';
   }
   rerender();
 });

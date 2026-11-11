@@ -181,7 +181,8 @@ function costsSummary(values) {
   const minAvc = Math.min(...m.rows.filter((r) => r.q).map((r) => r.avc));
   return html`<div class="note small">With these settings the correct supply schedule is
     ${m.supply.map((x) => `${'$'}${x.price} → ${x.q}`).join(', ')} ${c.product_plural}.
-    The ${c.business} should close when the price it keeps is below ${'$'}${minAvc.toFixed(2)} (lowest average variable cost).</div>`;
+    The ${c.business} should close when the price${c.card_fee > 0 ? ' it keeps' : ''} is below ${'$'}${minAvc.toFixed(2)} (lowest average variable cost).
+    ${c.pace === 'self' ? 'Self-paced: it opens as soon as you create it; students work individually.' : ''}</div>`;
 }
 
 function typeCard(t, classId) {

@@ -81,7 +81,8 @@ function rulesList(s, cfg) {
 
 function intro(g, cfg) {
   const s = g.session;
-  const canJoin = s.status === 'lobby' || (s.status !== 'finished' && s.team_mode === 'teams');
+  const selfPaced = s.game_type === 'costs' && cfg.pace === 'self';
+  const canJoin = s.status === 'lobby' || (s.status !== 'finished' && (s.team_mode === 'teams' || selfPaced));
   return html`<section class="intro">
     ${scene(s.game_type, cfg)}
     ${!s.title.startsWith(GAME_LABELS[s.game_type]) ? html`<p class="kicker">${GAME_LABELS[s.game_type]}</p>` : ''}
@@ -89,7 +90,7 @@ function intro(g, cfg) {
     ${statusChip(s.status)}
     <p class="lede">${GAME_INFO[s.game_type].short}</p>
     ${rulesList(s, cfg)}
-    ${canJoin ? html`<button class="primary big" data-action="join-session">Join this game</button>`
+    ${canJoin ? html`<button class="primary big" data-action="join-session">${selfPaced ? 'Start' : 'Join this game'}</button>`
       : s.status === 'finished' ? html`<p class="muted">This game has finished.</p>`
       : html`<p class="muted">This game has already started. Wait for the next one.</p>`}
   </section>`;

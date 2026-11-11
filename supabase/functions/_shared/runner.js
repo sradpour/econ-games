@@ -1,7 +1,8 @@
 // Connects the pure game engine to the database.
 // `db.rpc(name, args)` must call a Postgres function with service-role rights and return its result.
-import { startGame, resolveStage, finishGame } from './engine.js';
+import { startGame, resolveStage, finishGame, scoreCostsSubmissions, closeCostsSelfPaced } from './engine.js';
 
+const selfPaced = (s) => s.game_type === 'costs' && s.config?.pace === 'self';
 const withRound = (list, roundNo) => (list || []).map((a) => ({ round_no: a.round_no ?? roundNo, team_id: a.team_id, info: a.info }));
 
 export async function runEngineAction(db, sessionId, action, rng = Math.random) {
@@ -13,7 +14,7 @@ export async function runEngineAction(db, sessionId, action, rng = Math.random) 
   if (action === 'start') {
     if (s.status !== 'lobby') return { ok: false, reason: 'already started' };
     const teams = await db.rpc('engine_prepare_start', { p_session: sessionId });
-    if (!teams || teams.length === 0) throw new Error('No teams or players to start with.');
+    if (!teams || (teams.length === 0 && !selfPaced(s))) throw new Error('No teams or players to start with.');
     const g = startGame(s.game_type, s.config, teams, rng);
     patch = {
       expect: { status: 'lobby', round_no: 0, stage: null },
@@ -44,6 +45,20 @@ export async function runEngineAction(db, sessionId, action, rng = Math.random) 
       session: r.finished
         ? { status: 'finished', stage: null }
         : { status: 'running', round_no: r.open.round_no, stage: r.open.stage, seconds: r.open.seconds },
+    };
+  } else if (action === 'score') {
+    // Self-paced costs game: score new submissions; the game stays open.
+    if (!selfPaced(s) || !['running', 'paused'].includes(s.status)) return { ok: false, reason: 'nothing to score' };
+    const results = scoreCostsSubmissions(s.config, ctx.submitted || {}, ctx.scored || {});
+    if (!results.length) return { ok: true, action, scored: 0 };
+    patch = { expect: { status: s.status, round_no: s.round_no, stage: s.stage }, results };
+  } else if (action === 'finish' && selfPaced(s) && s.status !== 'lobby') {
+    if (s.status === 'finished') return { ok: false, reason: 'already finished' };
+    const out = closeCostsSelfPaced(s.config, ctx.teams, ctx.decisions || {}, ctx.scored || {});
+    patch = {
+      expect: { status: s.status, round_no: s.round_no, stage: s.stage },
+      results: out.results, round_public: out.round_public, outputs: out.outputs, required: [],
+      session: { status: 'finished', stage: null },
     };
   } else if (action === 'finish') {
     if (s.status === 'finished') return { ok: false, reason: 'already finished' };

@@ -19,7 +19,7 @@ function parseRoute() {
   if (parts[0] === 'play' && parts[1]) return { name: 'play', id: parts[1] };
   if (parts[0] === 'teach' && parts[1] === 'class' && parts[2]) return { name: 'class', id: parts[2] };
   if (parts[0] === 'teach' && parts[1] === 'new' && parts[2]) return { name: 'new', id: parts[2] };
-  if (parts[0] === 'teach' && parts[1] === 'game' && parts[2]) return { name: 'control', id: parts[2], projector: parts[3] === 'projector' };
+  if (parts[0] === 'teach' && parts[1] === 'game' && parts[2]) return { name: 'control', id: parts[2], projector: parts[3] === 'projector', solve: parts[3] === 'solve' };
   if (parts[0] === 'teach') return { name: 'teach' };
   if (parts[0] === 'admin') return { name: 'admin' };
   if (parts[0] === 'demo') return { name: 'demo', id: parts[1] };

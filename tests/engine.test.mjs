@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startGame, resolveStage, makeRng, allocateRationing, benchmarks, normalizeConfig, costsModel, scoreSchedule } from '../supabase/functions/_shared/engine.js';
+import { startGame, resolveStage, makeRng, allocateRationing, benchmarks, normalizeConfig, costsModel, scoreSchedule, scoreCostsSubmissions, closeCostsSelfPaced } from '../supabase/functions/_shared/engine.js';
 
 const teams = (n) => Array.from({ length: n }, (_, i) => ({ id: `t${i + 1}`, name: `Team ${i + 1}` }));
 
@@ -366,14 +366,16 @@ test('commons simple: extract or wait payoffs', () => {
 
 test('costs: cost table follows the bills; supply follows MC above the lowest AVC', () => {
   const m = costsModel({});
-  assert.equal(m.fixed, 170);                       // rent + insurance
+  assert.equal(m.fixed, 220);                       // rent + insurance
   assert.equal(m.opening, 140);                     // lease + income given up by opening
+  assert.equal(m.keep, 1);                          // no card fee by default
   assert.deepEqual(m.rows.map((r) => r.q), [0, 30, 80, 140, 190, 230, 260, 290, 310, 325, 335]);
   assert.equal(m.rows[0].vc, 0);
-  assert.equal(m.rows[1].vc, 290);                  // 120 wages + 30 × $1 inputs + 140 opening
-  assert.equal(m.rows[5].tc, 1140);
-  assert.equal(m.rows[8].mc, 7);                    // 8th worker: (120 + 20 × $1) / 20
-  assert.deepEqual(m.supply.map((x) => x.q), [0, 0, 230, 290, 290, 310, 310, 325]);
+  assert.equal(m.rows[1].vc, 288.5);                // 120 wages + 30 × $0.95 inputs + 140 opening
+  assert.equal(m.rows[5].tc, 1178.5);
+  assert.ok(Math.abs(m.rows[8].mc - 6.95) < 1e-9);  // 8th worker: (120 + 20 × $0.95) / 20
+  assert.deepEqual(m.supply.map((x) => x.q), [0, 0, 290, 290, 310, 310, 325, 325]);
+  assert.ok(m.supply[2].profit < 0, 'at $5 the bakery loses money but should still open');
   // Below the lowest AVC the firm closes even though some workers have MC below the price
   const minAvc = Math.min(...m.rows.filter((r) => r.q).map((r) => r.avc));
   for (const x of m.supply) assert.equal(x.q === 0, x.price * m.keep < minAvc);
@@ -424,4 +426,40 @@ test('costs: custom output and prices are parsed and validated', () => {
   const m = costsModel(c);
   assert.equal(m.maxWorkers, 4);
   assert.equal(m.keep, 1);
+});
+
+test('costs easy version: only rent, insurance, workers and per-unit inputs', () => {
+  const c = normalizeConfig('costs', { level: 'easy', lease: 60, card_fee: 0.03 });
+  assert.equal(c.lease, 0); assert.equal(c.sublet, 0); assert.equal(c.card_fee, 0); assert.equal(c.energy_cost, 0);
+  const m = costsModel(c);
+  assert.equal(m.opening, 0);
+  assert.deepEqual(m.supply.map((x) => x.q), [0, 230, 290, 290, 310, 310, 325, 325]);
+});
+
+test('costs self-paced: individual, no timer; submissions scored once per attempt, best counts; closing scores saved work', () => {
+  const c = normalizeConfig('costs', { pace: 'self', team_mode: 'teams', round_seconds: 600 });
+  assert.equal(c.team_mode, 'individual'); assert.equal(c.round_seconds, 0);
+  const m = costsModel(c);
+  const best = Object.fromEntries(m.supply.map((x) => [String(x.price), x.workers]));
+  const bad = Object.fromEntries(m.c.price_list.map((p) => [String(p), 10]));
+  let r = scoreCostsSubmissions(c, { a: { schedule: bad, attempt: 1 }, b: { schedule: best, attempt: 1 } }, {});
+  const by = Object.fromEntries(r.map((x) => [x.team_id, x]));
+  assert.equal(by.b.earnings, 100);
+  assert.ok(by.a.earnings < 70);
+  // Already scored: nothing new
+  assert.equal(scoreCostsSubmissions(c, { a: { schedule: bad, attempt: 1 } }, { a: by.a.payload }).length, 0);
+  // Second attempt is better: best counts; a worse third attempt keeps the best
+  r = scoreCostsSubmissions(c, { a: { schedule: best, attempt: 2 } }, { a: by.a.payload });
+  assert.equal(r[0].earnings, 100); assert.equal(r[0].payload.attempt, 2);
+  const r3 = scoreCostsSubmissions(c, { a: { schedule: bad, attempt: 3 } }, { a: r[0].payload });
+  assert.equal(r3[0].earnings, 100); assert.ok(r3[0].payload.score < 70);
+  // Closing: c saved work but never submitted, d never started
+  const teams = [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }, { id: 'c', name: 'C' }, { id: 'd', name: 'D' }];
+  const out = closeCostsSelfPaced(c, teams, { c: { schedule: best } }, { a: r3[0].payload, b: by.b.payload });
+  assert.equal(out.results.length, 1);
+  assert.equal(out.results[0].team_id, 'c'); assert.equal(out.results[0].payload.auto, true);
+  const lb = out.outputs[0].payload.leaderboard;
+  assert.deepEqual(lb.map((x) => x.total), [100, 100, 100, 0]);
+  assert.equal(lb[3].name, 'D');
+  assert.equal(out.round_public[0].payload.teams, 3);
 });
