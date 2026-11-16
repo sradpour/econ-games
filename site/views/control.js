@@ -12,6 +12,8 @@ import { timerBar } from './play.js';
 import { roundsTotal, moveStrip, firmHistory } from './panels.js';
 import { tournamentResults } from './lab.js';
 import { costsInstructor, costsProjector, costsSolve } from './costs.js';
+import { writeClipboard } from '../lib/tables.js';
+import { fmtDue, toLocalInput, fromLocalInput, defaultDue } from '../lib/due.js';
 
 let stop = null, current = null, loading = false, again = false;
 
@@ -62,6 +64,12 @@ async function load() {
 }
 
 const siteUrl = () => location.origin + location.pathname.replace(/index\.html$/, '');
+const gameLink = (id) => `${siteUrl()}#/play/${id}`;
+
+on('copy-game-link', async (el) => {
+  const ok = await writeClipboard(gameLink(el.dataset.id));
+  toast(ok ? 'Link copied. Paste it into your course site or an email.' : `Copying is blocked in this browser. The link is ${gameLink(el.dataset.id)}`, ok ? 'info' : 'error');
+});
 
 // ---------------------------------------------------------------------------
 
@@ -79,7 +87,8 @@ export function renderControl(route) {
     <div class="ctrl-head">
       <div>${s.title !== GAME_LABELS[s.game_type] ? html`<p class="kicker">${GAME_LABELS[s.game_type]}</p>` : ''}<h1>${s.title}</h1>${statusChip(s.status)}</div>
       <div class="join-box"><span class="small muted">Students join at</span><strong>${siteUrl().replace(/^https?:\/\//, '')}</strong>
-        <span class="small muted">Class code <strong>${s.join_code}</strong></span></div>
+        <span class="small muted">Class code <strong>${s.join_code}</strong></span>
+        <button class="link copy-btn" data-action="copy-game-link" data-id="${s.id}" title="${gameLink(s.id)}">⧉ Copy student link</button></div>
     </div>
     ${st.last_error ? html`<div class="banner error"><p><strong>The game engine reported a problem:</strong> ${st.last_error}</p><button data-action="ctl" data-op="retry">Try again</button></div>` : ''}
     ${controls(st, c)}
@@ -88,6 +97,29 @@ export function renderControl(route) {
     ${displaySettings(st, c)}
   </main>`;
 }
+
+function dueEditor(s) {
+  return html`<form class="due-edit" data-action="set-due">
+    <p class="due-now">${s.closes_at ? html`<strong>Due ${fmtDue(s.closes_at)}.</strong> It closes itself then.` : html`<strong>No due date.</strong> It stays open until you close it.`}</p>
+    <div class="inline"><label for="due_at" class="small">${s.closes_at ? 'Change the due date' : 'Set a due date'}</label>
+      <input id="due_at" name="due_at" type="datetime-local" value="${toLocalInput(s.closes_at) || defaultDue()}" required>
+      <button type="submit">${s.closes_at ? 'Save' : 'Set due date'}</button>
+      ${s.closes_at ? html`<button type="button" class="link" data-action="clear-due">Remove due date</button>` : ''}</div>
+  </form>`;
+}
+on('set-due', async (_f, d) => {
+  const iso = fromLocalInput(d.due_at);
+  if (!iso) { toast('Pick a date and time.', 'error'); return; }
+  if (new Date(iso).getTime() <= Date.now()) { toast('That time has already passed. Pick a later time, or use "Close it now".', 'error'); return; }
+  await rpc('instructor_set_due', { p_session: current, p_due: iso });
+  toast(`Due ${fmtDue(iso)}`);
+  load();
+});
+on('clear-due', async () => {
+  await rpc('instructor_set_due', { p_session: current, p_due: null });
+  toast('Due date removed. It stays open until you close it.');
+  load();
+});
 
 function selfPacedControls(st, c) {
   const s = st.session;
@@ -106,7 +138,8 @@ function selfPacedControls(st, c) {
   return html`<section class="card controls">
     <p class="big-line">Open: students can join and submit any time.</p>
     <p>${joined} ${joined === 1 ? 'student has' : 'students have'} opened it · ${submitted} submitted · ${c.attempts === 'one' ? 'one submission each' : 'unlimited submissions, best score counts'}</p>
-    <p class="small muted">Students find it on their class page. When you close it, anyone who saved work but never submitted is scored on what they saved${c.show_answers ? ', and everyone can see the answer key' : ''}.</p>
+    <p class="small muted">Students find it on their class page, or you can share the student link. When it closes, anyone who saved work but never submitted is scored on what they saved${c.show_answers ? ', and everyone can see the answer key' : ''}.</p>
+    ${dueEditor(s)}
     <div class="row wrap">${solve}<a class="button" href="#/teach/game/${s.id}/projector">Projector view</a>
       <button class="danger" data-action="ctl" data-op="finish">Close it now</button></div>
     ${exports}

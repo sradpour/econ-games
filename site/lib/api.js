@@ -37,7 +37,15 @@ export async function initAuth(onChange) {
   onChange(session?.user ?? null);
 }
 
+// Google sends people back to the site's address without the #/… part, so remember where they were going
+// (for example a game link from their instructor) and return there after signing in.
+const RETURN_KEY = 'econ-return-to';
+export function takeReturnHash() {
+  try { const h = localStorage.getItem(RETURN_KEY); localStorage.removeItem(RETURN_KEY); return h || ''; } catch { return ''; }
+}
+
 export async function signInWithGoogle() {
+  try { if (/^#\/play\//.test(location.hash)) localStorage.setItem(RETURN_KEY, location.hash); else localStorage.removeItem(RETURN_KEY); } catch { /* storage blocked */ }
   const sb = await client();
   const { error } = await sb.auth.signInWithOAuth({
     provider: 'google',

@@ -821,3 +821,19 @@ tr.miss td { background: color-mix(in srgb, var(--neg) 7%, transparent); }
 .cw .sortbills select { min-width: 150px; }
 .cw .costlist td:first-child, .costlist td:first-child { text-align: left; }
 .solve-tools .row { gap: 8px; }
+
+/* Homework: due dates and joining from a game link */
+.due-banner { margin: 0 0 14px; padding: 10px 14px; border: 2.5px solid var(--ink); border-radius: 12px; background: var(--hi-soft); font-weight: 600; }
+.due-banner.soon { background: #FFE2C2; }
+.due-banner.past { background: var(--supply-soft); }
+.due-edit { margin: 12px 0 4px; padding: 10px 12px; border: 2px dashed var(--ink); border-radius: 12px; }
+.due-edit .due-now { margin: 0 0 8px; }
+.due-edit .inline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.due-edit input[type=datetime-local] { width: auto; }
+.due-field { margin: 12px 0; display: grid; gap: 10px; max-width: 520px; }
+.due-field input[type=datetime-local] { display: block; margin-top: 4px; }
+.g-due { font-weight: 700; }
+.join-first form { max-width: 380px; }
+.join-first input[name=code] { text-transform: uppercase; letter-spacing: .12em; font-size: 1.2rem; }
+.error-text { color: var(--neg); font-weight: 600; margin: 0; }
+.join-box .copy-btn { margin-top: 4px; }

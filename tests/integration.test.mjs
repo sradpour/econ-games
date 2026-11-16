@@ -24,7 +24,7 @@ before(async () => {
   execFileSync('psql', [...PSQL, '-c', 'drop database if exists econ_it', '-c', 'create database econ_it']);
   execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', 'tests/stubs.sql']);
   execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', 'supabase/migrations/0001_schema.sql']);
-  for (const m of ['0003_admin_management', '0004_tournament_progress', '0005_strategy_names', '0006_commons', '0007_round_info', '0008_costs', '0009_submit_no_deadlock', '0010_demo_translator', '0011_costs_self_paced']) {
+  for (const m of ['0003_admin_management', '0004_tournament_progress', '0005_strategy_names', '0006_commons', '0007_round_info', '0008_costs', '0009_submit_no_deadlock', '0010_demo_translator', '0011_costs_self_paced', '0012_homework_due_dates']) {
     execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', `supabase/migrations/${m}.sql`]);
   }
   await sql(`insert into private.app_config(key, value) values ('engine_url', 'local-queue') on conflict (key) do update set value = excluded.value`);
@@ -410,6 +410,67 @@ test('costs game, self-paced: opens without Start, students join any time, submi
   await drain();
   assert.equal((await T('instructor_state', { p_session: s3.id })).session.status, 'lobby');
   await fails(as(a)('costs_submit', { p_session: s3.id, p_payload: { schedule: best } }), /not self-paced/);
+});
+
+test('homework: due date set at creation, shown to students, changeable, closes and scores the game by itself', async () => {
+  const T = as('siavash.radpour@stockton.edu');
+  const best = { 3: 0, 4: 0, 5: 7, 6: 7, 7: 8, 8: 8, 9: 9, 10: 9 };
+  const due = new Date(Date.now() + 3 * 864e5).toISOString();
+  const s = await T('create_session', { p_class: classId, p_game_type: 'costs', p_title: 'Costs HW',
+    p_config: { pace: 'self', attempts: 'one', due_at: due } });
+  await drain();
+  let st = await T('instructor_state', { p_session: s.id });
+  assert.equal(st.session.status, 'running');
+  assert.equal(new Date(st.session.closes_at).toISOString(), due);
+  assert.equal(st.session.config.due_at, undefined, 'due date lives in its own column');
+  const [a, b] = students.slice(5, 7);
+  const list = await as(a)('class_sessions', { p_class: classId });
+  const row = list.find((x) => x.id === s.id);
+  assert.equal(row.self_paced, true);
+  assert.equal(new Date(row.closes_at).toISOString(), due);
+  for (const e of [a, b]) { await as(e)('join_session', { p_session: s.id }); await as(e)('pass_check', { p_session: s.id }); }
+  const g = await as(a)('get_state', { p_session: s.id });
+  assert.equal(new Date(g.session.closes_at).toISOString(), due);
+  await as(a)('costs_submit', { p_session: s.id, p_payload: { schedule: best } });
+  await as(b)('submit_decision', { p_session: s.id, p_payload: { schedule: best } });
+  // Only the owner can change it; live games have no due date
+  await fails(as(a)('instructor_set_due', { p_session: s.id, p_due: due }), /not your game|Not your|owner|Instructor/i);
+  const live = await T('create_session', { p_class: classId, p_game_type: 'costs', p_title: 'Live', p_config: { due_at: due } });
+  assert.equal((await T('instructor_state', { p_session: live.id })).session.closes_at, null);
+  await fails(T('instructor_set_due', { p_session: live.id, p_due: due }), /Only assignment/);
+  // Clearing keeps it open; a ticking clock does nothing
+  await T('instructor_set_due', { p_session: s.id, p_due: null });
+  await drain();
+  assert.equal((await T('instructor_state', { p_session: s.id })).session.status, 'running');
+  // Move the due date into the past: the next tick closes it and scores b's saved work
+  await T('instructor_set_due', { p_session: s.id, p_due: new Date(Date.now() - 60e3).toISOString() });
+  await fails(as(b)('submit_decision', { p_session: s.id, p_payload: { schedule: {} } }), /due date has passed/);
+  await fails(as(b)('costs_submit', { p_session: s.id, p_payload: { schedule: best } }), /due date has passed/);
+  await drain();
+  st = await T('instructor_state', { p_session: s.id });
+  assert.equal(st.session.status, 'finished', 'closed by itself at the due date');
+  assert.deepEqual(st.outputs.final.leaderboard.map((x) => x.total), [100, 100]);
+  await fails(T('instructor_set_due', { p_session: s.id, p_due: due }), /already closed/);
+});
+
+test('a game link opened before joining the class names the class to join', async () => {
+  const T = as('siavash.radpour@stockton.edu');
+  const s = await T('create_session', { p_class: classId, p_game_type: 'costs', p_title: 'Link test', p_config: { pace: 'self' } });
+  await login('newcomer@go.stockton.edu', 'New Comer');
+  const N = as('newcomer@go.stockton.edu');
+  await N('complete_profile', { p_full_name: 'New Comer', p_student_id: 'Z9999' });
+  await fails(N('get_state', { p_session: s.id }), /Game not found/);
+  const h = await N('game_class_hint', { p_session: s.id });
+  assert.equal(h.member, false);
+  assert.equal(h.class_name, 'ECON 1200');
+  assert.equal(h.instructor, 'Siavash Radpour');
+  assert.equal(await N('game_class_hint', { p_session: '00000000-0000-0000-0000-000000000000' }), null);
+  await N('join_class', { p_code: code });
+  assert.equal((await N('game_class_hint', { p_session: s.id })).member, true);
+  assert.equal((await N('get_state', { p_session: s.id })).joined, false);
+  await N('join_session', { p_session: s.id });
+  await T('instructor_control', { p_session: s.id, p_action: 'finish' });
+  await drain();
 });
 
 test('strategy tournament: save, rate limit hook, results saved by instructor', async () => {

@@ -6,6 +6,7 @@ import { scene } from './scenes.js';
 import { marginalProduct } from '../lib/engine.js';
 import { go } from '../app.js';
 import { statusChip } from './student.js';
+import { fromLocalInput, defaultDue } from '../lib/due.js';
 
 export async function enterTeach() {
   if (!store.me?.is_instructor) return;
@@ -152,6 +153,7 @@ export function renderNewGame(classId) {
     </main>`;
   }
   const values = ng.values;
+  const selfPaced = ng.type === 'costs' && values.pace === 'self';
   return html`<main class="page teach"><button class="link back" data-action="ng-back">← Choose a different game</button>
     <h1>${GAME_LABELS[ng.type]}</h1><p class="lede">${GAME_INFO[ng.type].short}</p>
     ${MARKETS.includes(ng.type) ? html`<div class="presets"><span class="small muted">Quick setups:</span>${Object.entries(PRESETS).map(([k, p]) =>
@@ -162,9 +164,21 @@ export function renderNewGame(classId) {
       ${MARKETS.includes(ng.type) ? costSummary(ng.type, values) : ''}
       ${ng.type === 'costs' ? costsSummary(values) : ''}
       <div class="settings-grid">${SETTINGS[ng.type].filter((s) => !s.showIf || s.showIf(values)).map((s) => field(s, values[s.key]))}</div>
-      <div class="row"><button class="primary big" type="submit">Create game</button></div>
-      <p class="small muted">Players join from their class page. You start the game when everyone is in.</p>
+      ${selfPaced ? dueField(values) : ''}
+      <div class="row"><button class="primary big" type="submit">${selfPaced ? 'Create and open it' : 'Create game'}</button></div>
+      <p class="small muted">${selfPaced
+        ? 'It opens right away. Students find it on their class page, or you can copy a student link from the next page.'
+        : 'Players join from their class page. You start the game when everyone is in.'}</p>
     </form></main>`;
+}
+
+function dueField(values) {
+  const on = values.has_due !== false;
+  return html`<div class="due-field">
+    <label class="switch wide"><input type="checkbox" name="f_has_due" ${on ? 'checked' : ''} data-change="ng-field"> <span>Close it automatically on a due date</span>
+      <span class="help">At the due time it closes itself: unsubmitted saved work is scored and the answer key appears (if you chose to show it). You can change the date later.</span></label>
+    ${on ? html`<label for="f_due_at">Due date and time (your time zone)<input id="f_due_at" name="f_due_at" type="datetime-local" value="${values.due_at || defaultDue()}" data-input="ng-field" required></label>` : ''}
+  </div>`;
 }
 
 function costSummary(type, values) {
@@ -225,8 +239,13 @@ on('ng-field', (el) => {
 });
 on('create-game', async () => {
   const ng = store.ui.newGame;
-  const { title, ...config } = ng.values;
+  const { title, has_due, due_at, ...config } = ng.values;
   for (const s of SETTINGS[ng.type]) if (s.type === 'number' && config[s.key] === '') delete config[s.key];
+  if (ng.type === 'costs' && config.pace === 'self' && has_due !== false) {
+    const iso = fromLocalInput(document.querySelector('[name="f_due_at"]')?.value || due_at || defaultDue());
+    if (!iso || new Date(iso).getTime() <= Date.now()) { toast('Pick a due date in the future, or turn off the due date.', 'error'); return; }
+    config.due_at = iso;
+  }
   const r = await rpc('create_session', { p_class: ng.classId, p_game_type: ng.type, p_title: title, p_config: config });
   store.ui.newGame = null;
   go(`#/teach/game/${r.id}`);

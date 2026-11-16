@@ -8,6 +8,7 @@ import { renderLab } from './lab.js';
 import { demoSubmit, demoPass } from '../lib/demo.js';
 import { startChatPolling, stopChatPolling, commonsLoaded } from './commons.js';
 import { scene } from './scenes.js';
+import { dueText } from '../lib/due.js';
 
 let stopWatch = null;
 let currentId = null;
@@ -42,7 +43,11 @@ async function load() {
     setState({ game: g });
     commonsLoaded(g);
   } catch (e) {
-    setState({ game: { error: e.message } });
+    // A game link opened by someone who isn't in the class yet: ask for the class code.
+    const id = currentId;
+    const hint = /Game not found/.test(e.message) ? await rpc('game_class_hint', { p_session: id }).catch(() => null) : null;
+    if (id !== currentId) return;
+    setState({ game: hint && hint.member === false ? { needsClass: hint } : { error: e.message } });
   } finally {
     loading = false;
     if (again) { again = false; load(); }
@@ -56,6 +61,7 @@ export function renderPlay() {
   const g = store.game;
   if (!g) return html`<main class="page"><p class="muted">Loading game…</p></main>`;
   if (g.error) return html`<main class="page narrow"><h1>Can't open this game</h1><p>${g.error}</p><p><a href="#/">Back to your classes</a></p></main>`;
+  if (g.needsClass) return joinClassPage(g.needsClass);
   const s = g.session;
   const cfg = normalizeConfig(s.game_type, s.config);
   return html`<main class="page play gt-${s.game_type}">
@@ -66,6 +72,7 @@ export function renderPlay() {
         <button class="${cfg.variant !== 'simple' ? 'chosen' : ''}" data-action="demo-variant" data-variant="fishery">Fishery: choose how many fish to catch</button>
         <button class="${cfg.variant === 'simple' ? 'chosen' : ''}" data-action="demo-variant" data-variant="simple">Simple: extract or wait</button>
         <p class="small muted">Switching starts the demo over.</p></div>` : ''}` : html`<a class="back" href="#/">← ${s.class_name}</a>`}
+    ${s.closes_at && s.status !== 'finished' && !g.demo ? dueBanner(s.closes_at) : ''}
     ${!g.joined ? intro(g, cfg)
       : s.status === 'finished' ? finished(g, cfg)
       : !g.me.passed_check ? quiz(g, cfg)
@@ -74,6 +81,39 @@ export function renderPlay() {
       : live(g, cfg)}
   </main>`;
 }
+
+function dueBanner(iso) {
+  const left = new Date(iso).getTime() - Date.now();
+  const soon = left > 0 && left < 864e5;
+  return html`<p class="due-banner ${left <= 0 ? 'past' : soon ? 'soon' : ''}">${left <= 0
+    ? 'The due date has passed. This assignment is closing.'
+    : html`<strong>${dueText(iso)}</strong>${soon ? ' (less than a day left)' : ''}. If you haven't submitted by then, your saved work is scored as it stands.`}</p>`;
+}
+
+function joinClassPage(h) {
+  return html`<main class="page narrow join-first">
+    <h1>Join the class first</h1>
+    <p class="lede">This game is part of <strong>${h.class_name}</strong>${h.instructor ? html` (${h.instructor})` : ''}. Enter the class code from your instructor to join the class, then you'll go straight to the game.</p>
+    <form class="card stack" data-action="join-class-for-game">
+      <label for="jc_code">Class code<input id="jc_code" name="code" required placeholder="6 letters" autocomplete="off" autocapitalize="characters" maxlength="8" autofocus></label>
+      ${h.wrong ? html`<p class="error-text">That code is for ${h.wrong}, not ${h.class_name}. You've joined ${h.wrong}; check the code for this class.</p>` : ''}
+      <div class="row"><button class="primary" type="submit">Join and open the game</button></div>
+    </form>
+    <p class="small muted">Signed in as ${store.me?.email}. Wrong account? Sign out from the menu and sign in with your school account.</p>
+    <p><a href="#/">Back to your classes</a></p>
+  </main>`;
+}
+on('join-class-for-game', async (_f, d) => {
+  const hint = store.game?.needsClass;
+  const r = await rpc('join_class', { p_code: d.code });
+  const { refreshMe } = await import('../app.js');
+  await refreshMe().catch(() => {});
+  const id = currentId;
+  const g = await rpc('get_state', { p_session: id }).catch(() => null);
+  if (!g) { setState({ game: { needsClass: { ...hint, wrong: r.name } } }); return; }
+  toast(`Joined ${r.name}`);
+  load();
+});
 
 function rulesList(s, cfg) {
   return html`<ul class="rules">${GAME_INFO[s.game_type].rules(cfg).map((r) => html`<li>${r}</li>`)}</ul>`;

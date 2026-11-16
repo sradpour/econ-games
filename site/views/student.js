@@ -3,6 +3,7 @@ import { rpc, signInWithGoogle, devSignIn, DEV } from '../lib/api.js';
 import { GAME_LABELS } from '../lib/games.js';
 import { refreshMe, go } from '../app.js';
 import { scene } from './scenes.js';
+import { dueText } from '../lib/due.js';
 
 // ---------------------------------------------------------------------------
 // Sign in
@@ -14,6 +15,7 @@ export function renderSignIn() {
       <div class="hero-scenes">${scene('competitive', { product: 'loaf' }, 'hs')}${scene('commons', {}, 'hs')}${scene('pd_live', {}, 'hs')}${scene('public_goods', {}, 'hs')}</div>
       <h1>Run the market.<br>Find the price.</h1>
       <p class="lede">Classroom games for introductory economics: compete as firms in perfect competition, oligopoly and monopoly, and play the classic games of strategy with your classmates.</p>
+      ${/^#\/play\//.test(location.hash) ? html`<p class="card note">Sign in to open the game your instructor shared. You'll go straight to it afterwards.</p>` : ''}
       ${DEV ? html`<form class="card devlogin" data-action="dev-sign-in">
           <p class="muted">Local test mode: sign in as any email.</p>
           <label>Email <input name="email" type="email" required placeholder="student1@go.stockton.edu"></label>
@@ -87,8 +89,8 @@ export function renderHome() {
         html`<ul class="game-list">${sessions[c.id].map((s) => html`<li data-key="${s.id}">
           <a class="game-row ${s.status} gt-${s.game_type}" href="#/play/${s.id}">
             <span class="g-title">${s.title}</span>
-            <span class="g-type">${GAME_LABELS[s.game_type]}</span>
-            ${statusChip(s.status)}
+            <span class="g-type">${GAME_LABELS[s.game_type]}${s.self_paced && s.status !== 'finished' ? html` · <span class="g-due">${s.closes_at ? dueText(s.closes_at) : 'Open any time'}</span>` : ''}</span>
+            ${s.self_paced && ['running', 'paused'].includes(s.status) ? html`<span class="chip st-lobby">${s.joined ? 'Open' : 'Open: start any time'}</span>` : statusChip(s.status)}
           </a></li>`)}</ul>`}
     </section>`)}
     ${!me.is_instructor ? html`<footer class="home-foot">

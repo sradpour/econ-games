@@ -31,7 +31,7 @@ export function tableToTsv(table) {
     .map((tr) => [...tr.children].map(cellText).join('\t')).join('\n');
 }
 
-async function writeClipboard(text) {
+export async function writeClipboard(text) {
   try { await navigator.clipboard.writeText(text); return true; } catch { /* fall back below */ }
   const ta = document.createElement('textarea');
   ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';

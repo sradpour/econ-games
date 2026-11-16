@@ -1,5 +1,5 @@
 import { html, raw, store, setState, setRenderer, rerender, installEvents, patch, on, toast } from './lib/dom.js';
-import { initAuth, rpc, DEV } from './lib/api.js';
+import { initAuth, rpc, DEV, takeReturnHash } from './lib/api.js';
 import { CONFIG } from './config.js';
 import { renderSignIn, renderProfileSetup, renderHome, startHomeRefresh } from './views/student.js';
 import { renderPlay, enterPlay, leavePlay } from './views/play.js';
@@ -138,6 +138,8 @@ setState({ booting: true });
 initAuth(async (user) => {
   setState({ user, booting: false, me: null });
   if (!user) { onRoute(); return; }
+  const back = takeReturnHash();
+  if (back && !location.hash.replace(/^#\/?$/, '')) history.replaceState(null, '', location.pathname + back);
   try {
     let me = await refreshMe();
     if (!me) { await new Promise((r) => setTimeout(r, 800)); me = await refreshMe(); } // profile trigger may lag a moment
