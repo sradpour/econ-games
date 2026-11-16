@@ -24,7 +24,7 @@ before(async () => {
   execFileSync('psql', [...PSQL, '-c', 'drop database if exists econ_it', '-c', 'create database econ_it']);
   execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', 'tests/stubs.sql']);
   execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', 'supabase/migrations/0001_schema.sql']);
-  for (const m of ['0003_admin_management', '0004_tournament_progress', '0005_strategy_names', '0006_commons', '0007_round_info', '0008_costs', '0009_submit_no_deadlock', '0010_demo_translator', '0011_costs_self_paced', '0012_homework_due_dates']) {
+  for (const m of ['0003_admin_management', '0004_tournament_progress', '0005_strategy_names', '0006_commons', '0007_round_info', '0008_costs', '0009_submit_no_deadlock', '0010_demo_translator', '0011_costs_self_paced', '0012_homework_due_dates', '0013_class_delete_and_grades']) {
     execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', `supabase/migrations/${m}.sql`]);
   }
   await sql(`insert into private.app_config(key, value) values ('engine_url', 'local-queue') on conflict (key) do update set value = excluded.value`);
@@ -471,6 +471,54 @@ test('a game link opened before joining the class names the class to join', asyn
   await N('join_session', { p_session: s.id });
   await T('instructor_control', { p_session: s.id, p_action: 'finish' });
   await drain();
+});
+
+test('class grades: one export for every started game; teachers delete their own games and classes only', async () => {
+  const T = as('siavash.radpour@stockton.edu');
+  const C = as('colleague@stockton.edu');
+  const ex = await T('export_class', { p_class: classId });
+  assert.equal(ex.class_name, 'ECON 1200');
+  assert.ok(ex.games.length >= 5);
+  assert.ok(ex.games.every((g) => g.status !== 'lobby'), 'games that never started are left out');
+  assert.ok(!ex.students.some((x) => x.email === 'siavash.radpour@stockton.edu'), 'not the teacher');
+  assert.ok(ex.students.length >= 30);
+  const { classGradebook } = await import('../site/lib/grades.js');
+  const book = classGradebook(ex);
+  assert.equal(book.rows.length, ex.students.length);
+  assert.equal(book.columns.length, 5 + ex.games.length);
+  assert.equal(new Set(book.columns).size, book.columns.length, 'column names are unique');
+  const s1 = book.rows.find((r) => r.email === students[0]);
+  assert.ok(s1.games_played >= 3);
+  const pc = ex.games.find((g) => g.game_type === 'competitive');
+  const own = await T('export_session', { p_session: pc.id });
+  const mine = own.students.find((x) => x.email === students[0]);
+  const col = book.columns.find((k) => k.startsWith(pc.title) && k.includes('profit $'));
+  assert.equal(s1[col], Math.round(Number(mine.total) * 100) / 100, 'same total as the game\'s own grades file');
+  await fails(C('export_class', { p_class: classId }), /Not your class/);
+  await fails(as(students[0])('export_class', { p_class: classId }), /Instructor access required/);
+
+  // Delete a game from another teacher's class: refused; own: gone with its results
+  const g = await T('create_session', { p_class: classId, p_game_type: 'costs', p_title: 'Oops', p_config: { pace: 'self' } });
+  await drain();
+  await fails(C('delete_session', { p_session: g.id }), /Not your game/);
+  await T('delete_session', { p_session: g.id });
+  await fails(T('instructor_state', { p_session: g.id }), /Game not found/);
+
+  // A test class with a game, a student and results, deleted by its teacher
+  const tc = await T('create_class', { p_name: 'Test class', p_domains: [] });
+  await as(students[0])('join_class', { p_code: tc.join_code });
+  const tg = await T('create_session', { p_class: tc.id, p_game_type: 'costs', p_title: 'Test', p_config: { pace: 'self' } });
+  await drain();
+  await as(students[0])('join_session', { p_session: tg.id }); await as(students[0])('pass_check', { p_session: tg.id });
+  await as(students[0])('costs_submit', { p_session: tg.id, p_payload: { schedule: { 5: 7 } } });
+  await drain();
+  await fails(C('delete_class', { p_class: tc.id }), /Not your class/);
+  await fails(as(students[0])('delete_class', { p_class: tc.id }), /Instructor access required/);
+  await T('delete_class', { p_class: tc.id });
+  const home = await T('instructor_home');
+  assert.ok(!JSON.stringify(home).includes(tc.id));
+  assert.ok(!(await as(students[0])('get_me')).classes.some((x) => x.id === tc.id), 'gone from the student\'s list too');
+  await fails(as(students[0])('get_state', { p_session: tg.id }), /Game not found/);
 });
 
 test('strategy tournament: save, rate limit hook, results saved by instructor', async () => {

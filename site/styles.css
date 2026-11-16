@@ -837,3 +837,11 @@ tr.miss td { background: color-mix(in srgb, var(--neg) 7%, transparent); }
 .join-first input[name=code] { text-transform: uppercase; letter-spacing: .12em; font-size: 1.2rem; }
 .error-text { color: var(--neg); font-weight: 600; margin: 0; }
 .join-box .copy-btn { margin-top: 4px; }
+
+/* Deleting games and classes */
+.game-list.deletable li { display: flex; align-items: center; gap: 10px; }
+.game-list.deletable li .game-row { flex: 1; min-width: 0; }
+.game-list .g-del { flex: none; font-size: .9rem; }
+.danger-zone { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.danger-card { --band: #E5243B; }
+.danger-card form { max-width: 420px; }

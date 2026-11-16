@@ -57,7 +57,7 @@ function classCard(c) {
     ${c.sessions.length ? html`<ul class="game-list">${c.sessions.slice(0, 8).map((s) => html`<li data-key="${s.id}"><a class="game-row ${s.status} gt-${s.game_type}" href="#/teach/game/${s.id}">
       <span class="g-title">${s.title}</span><span class="g-type">${GAME_LABELS[s.game_type]} · ${plural(s.players, 'player')}</span>${statusChip(s.status)}</a></li>`)}</ul>
       ${c.sessions.length > 8 ? html`<p class="small"><a href="#/teach/class/${c.id}">All ${c.sessions.length} games</a></p>` : ''}` : html`<p class="muted">No games yet.</p>`}
-    <div class="row"><a class="button primary" href="#/teach/new/${c.id}">New game</a><a class="button" href="#/teach/class/${c.id}">Roster and settings</a></div>
+    <div class="row"><a class="button primary" href="#/teach/new/${c.id}">New game</a><a class="button" href="#/teach/class/${c.id}">Class page: roster, grades, settings</a></div>
   </section>`;
 }
 
@@ -98,9 +98,20 @@ export function renderClass(id) {
           <td><button class="link danger" data-action="remove-member" data-class="${c.id}" data-user="${r.user_id}" data-name="${r.name || r.email}">Remove</button></td></tr>`)}
         </tbody></table></div>`}
     </section>
-    <section class="card"><div class="row spread"><h2>Games</h2><a class="button primary" href="#/teach/new/${c.id}">New game</a></div>
-      <ul class="game-list">${c.sessions.map((s) => html`<li data-key="${s.id}"><a class="game-row ${s.status} gt-${s.game_type}" href="#/teach/game/${s.id}">
-        <span class="g-title">${s.title}</span><span class="g-type">${GAME_LABELS[s.game_type]} · ${plural(s.players, 'player')}</span>${statusChip(s.status)}</a></li>`)}</ul></section>
+    <section class="card"><div class="row spread"><h2>Games (${c.sessions.length})</h2>
+        <div class="row">${c.sessions.length ? html`<button data-action="class-grades" data-id="${c.id}">Download all grades (one file)</button>` : ''}<a class="button primary" href="#/teach/new/${c.id}">New game</a></div></div>
+      ${c.sessions.length ? html`<p class="small muted">The grades file has one row per student and one column per game that has started. A blank cell means the student never joined that game.</p>` : html`<p class="muted">No games yet.</p>`}
+      <ul class="game-list deletable">${c.sessions.map((s) => html`<li data-key="${s.id}"><a class="game-row ${s.status} gt-${s.game_type}" href="#/teach/game/${s.id}">
+        <span class="g-title">${s.title}</span><span class="g-type">${GAME_LABELS[s.game_type]} · ${plural(s.players, 'player')}</span>${statusChip(s.status)}</a>
+        <button class="link danger g-del" data-action="delete-game-row" data-id="${s.id}" data-class="${c.id}" title="Delete ${s.title}">Delete</button></li>`)}</ul></section>
+    <details class="card danger-card"><summary>Delete this class</summary>
+      <p>This permanently deletes <strong>${c.name}</strong>, its ${plural(c.sessions.length, 'game')} and every result in them, and removes ${plural(Math.max(0, c.members - 1), 'student')} from it. It cannot be undone.
+        ${c.sessions.length ? 'Download the grades first if you need them.' : ''} To keep it but hide it from students, tick "Archived" above instead.</p>
+      <form class="stack" data-action="delete-class" data-id="${c.id}">
+        <label>Type the class name to confirm<input name="confirm_name" autocomplete="off" required placeholder="${c.name}"></label>
+        <div class="row"><button class="danger" type="submit">Delete class permanently</button></div>
+      </form>
+    </details>
   </main>`;
 }
 
@@ -124,6 +135,32 @@ on('roster-csv', async (el) => {
   const rows = store.ui.roster.rows.filter((r) => r.user_id !== store.me.id).map((r) => ({ name: r.name, student_id: r.student_id, email: r.email, joined: r.joined_at }));
   const c = store.teach.classes.find((x) => x.id === el.dataset.id);
   downloadCsv(`${c.name} roster.csv`, rows);
+});
+
+on('delete-game-row', async (el) => {
+  const c = store.teach.classes.find((x) => x.id === el.dataset.class);
+  const g = c?.sessions.find((x) => x.id === el.dataset.id);
+  if (!g) return;
+  if (!confirmed(el, `Delete "${g.title}"${g.players ? ` and the results of its ${plural(g.players, 'player')}` : ''}? This cannot be undone.`)) return;
+  await rpc('delete_session', { p_session: g.id });
+  toast(`Deleted "${g.title}"`);
+  await enterTeach();
+});
+on('class-grades', async (el) => {
+  const [{ downloadCsv }, { classGradebook }] = await Promise.all([import('../lib/csv.js'), import('../lib/grades.js')]);
+  const ex = await rpc('export_class', { p_class: el.dataset.id });
+  if (!ex.games.length) { toast('No game in this class has started yet, so there are no grades.', 'warn'); return; }
+  const { columns, rows } = classGradebook(ex);
+  downloadCsv(`${ex.class_name} - all grades.csv`, rows, columns);
+});
+on('delete-class', async (form, d) => {
+  const c = store.teach.classes.find((x) => x.id === form.dataset.id);
+  if (!c) return;
+  if ((d.confirm_name || '').trim().toLowerCase() !== c.name.trim().toLowerCase()) { toast('The name you typed does not match the class name.', 'error'); return; }
+  await rpc('delete_class', { p_class: c.id });
+  toast(`Deleted ${c.name}`);
+  go('#/teach');
+  await enterTeach();
 });
 
 // ---------------------------------------------------------------------------

@@ -95,6 +95,8 @@ export function renderControl(route) {
     ${s.status === 'lobby' ? lobbyPanel(st, c) : ''}
     ${s.game_type === 'pd_tournament' ? tournamentPanel(st, c) : (s.status !== 'lobby' ? livePanels(st, c, teamOf) : '')}
     ${displaySettings(st, c)}
+    <div class="danger-zone"><button class="danger" data-action="delete-game">Delete this game and its results</button>
+      <span class="small muted">For a game you couldn't finish or a test. Download the grades first if you need them.</span></div>
   </main>`;
 }
 
@@ -191,8 +193,10 @@ on('ctl', async (el) => {
 on('ctl-peek', (el) => setUi('ctlPeek', () => (store.ui.ctlPeek === el.dataset.id ? null : el.dataset.id)));
 on('delete-game', async (el) => {
   if (!confirmed(el, 'This deletes the game and all its results permanently.')) return;
+  const classId = store.ctrl?.session?.class_id;
   await rpc('delete_session', { p_session: current });
-  go('#/teach');
+  toast('Game deleted');
+  go(classId ? `#/teach/class/${classId}` : '#/teach');
 });
 
 // ---------------------------------------------------------------------------
@@ -361,7 +365,6 @@ function displaySettings(st, c) {
       <button type="submit">Save display settings</button></form>` : ''}
     <dl class="settings-list">${rest.map((f) => html`<div><dt>${f.label}</dt><dd>${f.type === 'select' ? (f.options.find(([v]) => v === String(c[f.key]))?.[1] ?? c[f.key]) : f.type === 'bool' ? (c[f.key] ? 'Yes' : 'No') : c[f.key]}</dd></div>`)}</dl>
     <p class="small muted">${s.status === 'lobby' ? 'To change the other settings, delete this game and create a new one.' : 'Game settings are locked once the game starts.'}</p>
-    <div class="danger-zone"><button class="danger" data-action="delete-game">Delete this game and its results</button></div>
   </details>`;
 }
 on('save-display', async (form) => {
