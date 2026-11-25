@@ -19,8 +19,15 @@ export function enterPlay(id) {
   setState({ game: null });
   store.ui.quiz = null; store.ui.preview = null; store.ui.pg = null; store.ui.peek = null;
   load();
-  stopWatch = watchSession(id, load);
+  stopWatch = watchSession(id, { onChange: load, onSaved: savedElsewhere });
   startChatPolling();
+}
+// Someone saved: my team reloads (we share the decision); everyone else only updates the head count.
+function savedElsewhere(p, reload) {
+  const g = store.game;
+  if (!g?.session || g.demo) return;
+  if (p.team_id && g.me?.team_id && p.team_id === g.me.team_id) { reload(300); return; }
+  if (Number.isFinite(p.players) && p.players !== g.session.player_count) { g.session.player_count = p.players; rerender(); }
 }
 export function leavePlay() { stopWatch?.(); stopWatch = null; currentId = null; stopChatPolling(); }
 

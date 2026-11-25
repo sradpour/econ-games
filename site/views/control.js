@@ -23,7 +23,8 @@ export function enterControl(id) {
   setState({ ctrl: null });
   store.ui.ichat = null;
   load();
-  stop = watchSession(id, load);
+  // The instructor sees every save (progress, who submitted), refreshed at most about once a second.
+  stop = watchSession(id, { onChange: load, onSaved: (_p, reload) => reload(800), spread: 0, pollMs: 8000 });
   chatTimer = setInterval(() => {
     const st = store.ctrl;
     if (st?.session?.game_type === 'commons' && st.session.status === 'running' && document.visibilityState === 'visible') loadChat();

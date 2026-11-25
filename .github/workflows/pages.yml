@@ -1,4 +1,5 @@
-# Publishes the site/ folder to GitHub Pages on every push to main.
+# Packs the site/ folder (tools/build.mjs: one minified app.js with the Supabase library inside) and
+# publishes the result to GitHub Pages on every push to main.
 name: Publish site
 on:
   push:
@@ -19,9 +20,16 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Pack the site
+        run: |
+          npm install --no-save --no-audit --no-fund esbuild@0.28.2 @supabase/supabase-js@2.119.0
+          node tools/build.mjs
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: dist
       - id: deployment
         uses: actions/deploy-pages@v4

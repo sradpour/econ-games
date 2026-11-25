@@ -74,3 +74,9 @@ PORT=8787 node tools/devserver.mjs                              # local site at 
 - `supabase/functions/engine` – round resolution; `_shared/engine.js` is the pure game engine.
 - `supabase/functions/translate-strategy` – Gemini strategy translator.
 - `tests/` – unit and integration tests.
+
+## Performance notes
+- Screens listen on a private Realtime broadcast channel `session:<id>` (policy on `realtime.messages`: only people who can see the game may listen; there is no insert policy, so only the database sends). `changed` (round/settings/teams) makes everyone reload, spread over 1.5 s; `saved` carries counts and the saver's team, so only that team and the instructor reload. A slow poll (20 s students, 8 s instructor; 6 s if the channel can't connect) is the safety net.
+- Publishing packs the site with `tools/build.mjs` (esbuild) into `dist/`: one minified `app.js` including the Supabase library. To check the packed site locally: `node tools/build.mjs --stub` then `SITE_DIR=dist node tools/devserver.mjs`.
+- The pg_cron run log is trimmed daily (`econ-games-cleanup`).
+

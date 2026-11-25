@@ -8,7 +8,8 @@ let authListeners = [];
 
 async function client() {
   if (supabase) return supabase;
-  const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
+  // Packed into app.js when the site is published (tools/build.mjs); local test mode never loads it.
+  const { createClient } = await import('@supabase/supabase-js');
   supabase = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, {
     auth: { flowType: 'pkce', persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
   });
@@ -121,32 +122,70 @@ export async function translateStrategy(body) {
 }
 
 // ---------------------------------------------------------------------------
-// Live updates: refetch whenever the session row's version changes
 
-export function watchSession(sessionId, onChange) {
+// Live updates on the game's private channel "session:<id>" (only people who can see the game may listen;
+// only the database sends). Two kinds of message:
+//   changed: the game itself changed (a round started or ended, settings, teams) -> reload.
+//            Students spread their reloads over `spread` ms so 30 screens don't hit the server in the same instant.
+//   saved:   someone saved -> onSaved(payload, reload) decides (the saver's team reloads; others just update counts).
+// A slow safety poll catches anything missed; it speeds up if the channel can't connect.
+export function watchSession(sessionId, { onChange, onSaved = null, spread = 1500, pollMs = 20000 }) {
   let stopped = false;
   let channel = null;
-  let poll = null;
-  const fire = () => { if (!stopped) onChange(); };
-  const onVisible = () => { if (document.visibilityState === 'visible') fire(); };
+  let pollTimer = null;
+  let pending = null;
+  let healthy = false;
+  let subscribedOnce = false;
+
+  // Schedule one reload within maxDelay ms; an earlier one already scheduled covers it.
+  const reload = (maxDelay = 0) => {
+    if (stopped) return;
+    const delay = Math.random() * maxDelay;
+    const at = Date.now() + delay;
+    if (pending && pending.at <= at) return;
+    if (pending) clearTimeout(pending.t);
+    pending = { at, t: setTimeout(() => { pending = null; if (!stopped) onChange(); }, delay) };
+  };
+  const schedulePoll = () => {
+    const ms = DEV ? 1000 : healthy ? pollMs * (0.75 + Math.random() * 0.5) : 6000;
+    pollTimer = setTimeout(() => {
+      if (document.visibilityState === 'visible') reload(DEV ? 0 : 500);
+      schedulePoll();
+    }, ms);
+  };
+  const onVisible = () => { if (document.visibilityState === 'visible') reload(500); };
+  const onOnline = () => reload(spread);
   document.addEventListener('visibilitychange', onVisible);
-  window.addEventListener('online', fire);
-  if (DEV) {
-    poll = setInterval(fire, 1000);
-  } else {
-    poll = setInterval(fire, 8000); // safety net if a realtime message is missed
-    client().then((sb) => {
+  window.addEventListener('online', onOnline);
+  schedulePoll();
+
+  if (!DEV) {
+    client().then(async (sb) => {
       if (stopped) return;
-      channel = sb.channel(`session-${sessionId}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'sessions', filter: `id=eq.${sessionId}` }, fire)
-        .subscribe();
-    });
+      try {
+        const { data } = await sb.auth.getSession();
+        if (data.session) await sb.realtime.setAuth(data.session.access_token);
+      } catch { /* falls back to polling */ }
+      if (stopped) return;
+      channel = sb.channel(`session:${sessionId}`, { config: { private: true } })
+        .on('broadcast', { event: 'changed' }, () => reload(spread))
+        .on('broadcast', { event: 'saved' }, (msg) => { if (onSaved) onSaved(msg?.payload || {}, reload); else reload(spread); })
+        .subscribe((status) => {
+          const was = healthy;
+          healthy = status === 'SUBSCRIBED';
+          if (healthy && !was) {
+            if (subscribedOnce) reload(spread); // back after a dropped connection: catch up
+            subscribedOnce = true;
+          }
+        });
+    }).catch(() => { /* polling continues */ });
   }
   return () => {
     stopped = true;
-    clearInterval(poll);
+    clearTimeout(pollTimer);
+    if (pending) clearTimeout(pending.t);
     document.removeEventListener('visibilitychange', onVisible);
-    window.removeEventListener('online', fire);
+    window.removeEventListener('online', onOnline);
     if (channel && supabase) supabase.removeChannel(channel);
   };
 }

@@ -24,7 +24,7 @@ before(async () => {
   execFileSync('psql', [...PSQL, '-c', 'drop database if exists econ_it', '-c', 'create database econ_it']);
   execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', 'tests/stubs.sql']);
   execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', 'supabase/migrations/0001_schema.sql']);
-  for (const m of ['0003_admin_management', '0004_tournament_progress', '0005_strategy_names', '0006_commons', '0007_round_info', '0008_costs', '0009_submit_no_deadlock', '0010_demo_translator', '0011_costs_self_paced', '0012_homework_due_dates', '0013_class_delete_and_grades']) {
+  for (const m of ['0003_admin_management', '0004_tournament_progress', '0005_strategy_names', '0006_commons', '0007_round_info', '0008_costs', '0009_submit_no_deadlock', '0010_demo_translator', '0011_costs_self_paced', '0012_homework_due_dates', '0013_class_delete_and_grades', '0014_faster_class_play']) {
     execFileSync('psql', [...PSQL, '-d', 'econ_it', '-f', `supabase/migrations/${m}.sql`]);
   }
   await sql(`insert into private.app_config(key, value) values ('engine_url', 'local-queue') on conflict (key) do update set value = excluded.value`);
@@ -309,6 +309,73 @@ test('30 students submitting at the same instant never deadlock', async () => {
   }
   const st = await T('instructor_state', { p_session: s.id });
   assert.equal(st.decisions.length, 30);
+  await T('instructor_control', { p_session: s.id, p_action: 'finish' });
+  await drain();
+});
+
+test('class play: a save tells only its team (others get counts); a round change tells everyone once', async () => {
+  const T = as('siavash.radpour@stockton.edu');
+  const s = await T('create_session', { p_class: classId, p_game_type: 'public_goods', p_title: 'Quiet saves',
+    p_config: { auto_advance: true, contribute_seconds: 0, rounds_no_punish: 2, rounds_punish: 0 } });
+  const topic = `session:${s.id}`;
+  const count = async (event) => Number(await sql(`select count(*) from realtime.messages where topic = '${topic}' and event = '${event}'`));
+  for (const e of students) { await as(e)('join_session', { p_session: s.id }); await as(e)('pass_check', { p_session: s.id }); }
+  assert.equal(await count('changed'), 0, 'joining and the quick check do not reload everyone');
+  assert.equal(await count('saved'), 60);
+  await T('instructor_control', { p_session: s.id, p_action: 'start' });
+  await drain();
+  const changedAtStart = await count('changed');
+  assert.ok(changedAtStart >= 1 && changedAtStart <= 4, `start: ${changedAtStart}`);
+  // 29 of 30 save: no "changed", 29 "saved" with the saver's team and the running count
+  await Promise.all(students.slice(0, 29).map((e, i) => as(e)('submit_decision', { p_session: s.id, p_payload: { contribution: i % 20 } })));
+  assert.equal(await count('changed'), changedAtStart, 'saves do not reload everyone');
+  assert.equal(await count('saved'), 89);
+  const last = JSON.parse(await sql(`select payload from realtime.messages where topic = '${topic}' and event = 'saved' order by id desc limit 1`));
+  assert.equal(last.required, 30);
+  assert.equal(last.submitted, 29);
+  assert.ok(last.team_id);
+  // The last save ends the round: one more round of "changed"
+  await as(students[29])('submit_decision', { p_session: s.id, p_payload: { contribution: 5 } });
+  await drain();
+  const after = await count('changed');
+  assert.ok(after > changedAtStart && after <= changedAtStart + 4, `round end: ${after - changedAtStart}`);
+  await T('instructor_control', { p_session: s.id, p_action: 'finish' });
+  await drain();
+});
+
+test('game channel: only people who can see the game may listen; nobody but the database can send', async () => {
+  const T = as('siavash.radpour@stockton.edu');
+  const s = await T('create_session', { p_class: classId, p_game_type: 'costs', p_title: 'Channel', p_config: { pace: 'self' } });
+  await drain();
+  const topic = `session:${s.id}`;
+  const uid = async (email) => sql(`select id from public.profiles where email = '${email}'`);
+  const listen = async (email, t = topic) => Number(await sql(
+    `set role authenticated; set realtime.topic = '${t}'; select count(*) from realtime.messages where topic = '${t}'`, await uid(email)));
+  assert.ok(await listen(students[0]) > 0, 'a class member can listen');
+  assert.ok(await listen('siavash.radpour@stockton.edu') > 0, 'the teacher can listen');
+  assert.equal(await listen('someone@gmail.com'), 0, 'an outsider cannot');
+  assert.equal(await listen('colleague@stockton.edu'), 0, 'another teacher cannot');
+  assert.equal(await listen(students[0], 'session:not-a-uuid'), 0);
+  await assert.rejects(sql(`set role authenticated; set realtime.topic = '${topic}'; insert into realtime.messages(topic, event, payload) values ('${topic}', 'changed', '{}')`,
+    await uid(students[0])), /row-level security/);
+  await T('instructor_control', { p_session: s.id, p_action: 'finish' });
+  await drain();
+});
+
+test('self-paced: scoring one student\'s submission does not reload the whole class', async () => {
+  const T = as('siavash.radpour@stockton.edu');
+  const s = await T('create_session', { p_class: classId, p_game_type: 'costs', p_title: 'Quiet scoring', p_config: { pace: 'self' } });
+  await drain();
+  const topic = `session:${s.id}`;
+  const count = async (event) => Number(await sql(`select count(*) from realtime.messages where topic = '${topic}' and event = '${event}'`));
+  const a = students[3];
+  await as(a)('join_session', { p_session: s.id }); await as(a)('pass_check', { p_session: s.id });
+  const before = await count('changed');
+  await as(a)('costs_submit', { p_session: s.id, p_payload: { schedule: { 5: 7 } } });
+  await drain();
+  assert.equal(await count('changed'), before);
+  const g = await as(a)('get_state', { p_session: s.id });
+  assert.equal(g.results.length, 1, 'still scored');
   await T('instructor_control', { p_session: s.id, p_action: 'finish' });
   await drain();
 });

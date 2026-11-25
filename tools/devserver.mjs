@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { runEngineAction } from '../supabase/functions/_shared/runner.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SITE = path.join(ROOT, 'site');
+const SITE = path.join(ROOT, process.env.SITE_DIR || 'site'); // SITE_DIR=dist serves the packed build
 const PORT = Number(process.env.PORT || 8787);
 const DB = process.env.DEVDB || 'econ';
 const PSQL = ['-h', '/var/tmp', '-p', '5433', '-U', 'postgres', '-d', DB, '-tAXq', '-v', 'ON_ERROR_STOP=1'];

@@ -28,7 +28,8 @@ export const payoffsFrom = (cfg = {}) => ({
   T: Number(cfg.payoff_T ?? 5), R: Number(cfg.payoff_R ?? 3), P: Number(cfg.payoff_P ?? 1), S: Number(cfg.payoff_S ?? 0),
 });
 
-const workerUrl = new URL('../worker/strategy-worker.js', import.meta.url);
+// Relative to the page, so it works both unbundled and from the single packed app.js
+const workerUrl = new URL('worker/strategy-worker.js', document.baseURI);
 let seq = 0;
 
 /** Run matches in a fresh worker, killing it if it takes too long (e.g. an infinite loop). */
